@@ -799,3 +799,13 @@ class NetMem(NetMemSim):
         cmd += f' {self.eth_latency}'
 
         return cmd
+
+
+class VTADev(PCIDevSim):
+
+    def run_cmd(self, env):
+        cmd = (
+            f'{env.repodir}/sims/external/vta/simbricks/vta_simbricks'
+            f' {env.dev_pci_path(self)} {env.dev_shm_path(self)}'
+        )
+        return cmd

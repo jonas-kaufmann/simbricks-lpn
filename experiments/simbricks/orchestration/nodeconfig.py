@@ -814,3 +814,48 @@ class MemcachedClient(AppConfig):
             f' --thread={self.threads} --concurrency={self.concurrency}'
             f' --tps={self.throughput} --verbose'
         )]
+
+
+class LinuxVTANode(NodeConfig):
+
+    def __init__(self):
+        super().__init__()
+        self.disk_image = 'vta'
+        self.memory = 16 * 1024
+        self.kcmd_append = ' memmap=512M!1G'
+
+    def prepare_pre_cp(self):
+        return [
+            'mount -t proc proc /proc',
+            'mount -t sysfs sysfs /sys',
+        ]
+
+    def prepare_post_cp(self):
+        return [
+            'echo 1 >/sys/module/vfio/parameters/enable_unsafe_noiommu_mode',
+            'echo "dead beef" >/sys/bus/pci/drivers/vfio-pci/new_id',
+            'cat /sys/module/vfio/parameters/enable_unsafe_noiommu_mode',
+        ]
+
+
+class VTATest(AppConfig):
+
+    def run_cmds(self, node):
+        return [
+            'set -x',
+            ('export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:'
+                '/sbin:/bin'),
+            'export HOME=/root',
+            'cd /root/tvm/',
+            'ip link set lo up',
+            'ip addr add 127.0.0.1/8 dev lo',
+            'echo "127.0.0.1 localhost" >>/etc/hosts',
+            'export PYTHONPATH=/root/tvm/python:${PYTHONPATH}',
+            'export PYTHONPATH=/root/tvm/vta/python:${PYTHONPATH}',
+            '/usr/bin/python3 -m vta.exec.rpc_server &',
+            'sleep 5',
+            'export VTA_RPC_HOST=127.0.0.1',
+            'export VTA_RPC_PORT=9091',
+            #'python vta/tests/python/integration/test_benchmark_topi_conv2d.py'
+            'python vta/tests/python/integration/test_benchmark_gemm.py'
+        ]
