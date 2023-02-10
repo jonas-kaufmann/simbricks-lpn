@@ -78,5 +78,15 @@ $(d)femu/ready: $(d)femu $(lib_nicif)
 	    EXTRA_CPPFLAGS=-I$(abspath $(lib_dir))
 	touch $@
 
+
+$(d)vta:
+	git clone --branch=simbricks \
+	  https://github.com/simbricks/tvm-vta-simbricks.git $@
+
+$(d)vta/ready: $(d)vta $(lib_nicif)
+	cd $</simbricks && $(MAKE)
+	touch $@
+
+
 DISTCLEAN := $(base_dir)gem5 $(base_dir)qemu $(base_dir)ns-3 $(base_dir)femu
 include mk/subdir_post.mk

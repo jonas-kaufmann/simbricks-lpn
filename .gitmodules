@@ -10,3 +10,6 @@
 [submodule "sims/external/femu"]
 	path = sims/external/femu
 	url = https://github.com/simbricks/femu.git
+[submodule "sims/external/vta"]
+	path = sims/external/vta
+	url = https://github.com/simbricks/tvm-vta-simbricks.git
