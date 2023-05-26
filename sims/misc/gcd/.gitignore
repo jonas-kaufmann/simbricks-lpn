@@ -1,0 +1,4 @@
+obj_dir/
+
+gcd_dump.vcd
+gcd_verilator

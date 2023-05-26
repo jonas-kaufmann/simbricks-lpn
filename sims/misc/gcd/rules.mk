@@ -22,10 +22,35 @@
 
 include mk/subdir_pre.mk
 
-$(eval $(call subdir,external))
-$(eval $(call subdir,mem))
-$(eval $(call subdir,misc))
-$(eval $(call subdir,net))
-$(eval $(call subdir,nic))
+dir_gcd := $(d)
+bin_gcd := $(d)gcd_verilator
+verilator_obj_dir := $(d)obj_dir
+verilator_src_gcd := $(verilator_obj_dir)/Vgcd.cpp
+verilator_bin_gcd := $(verilator_obj_dir)/Vgcd
+
+vsrcs_gcd := $(wildcard $(d)rtl/*.v $(d)lib/*/rtl/*.v \
+    $(d)lib/*/lib/*/rtl/*.v)
+srcs_gcd := $(addprefix $(d),gcd_verilator.cc)
+OBJS := $(srcs_gcd:.cc=.o)
+
+
+$(verilator_src_gcd):
+	$(VERILATOR) $(VFLAGS) --cc -O3 --trace --trace-depth 1 \
+	    -CFLAGS "-I$(abspath $(lib_dir)) -iquote $(abspath $(base_dir)) -Og -g -ggdb -Wall -Wno-maybe-uninitialized" \
+	    --Mdir $(verilator_obj_dir) \
+		-LDFLAGS "-L$(abspath $(lib_dir)) -lsimbricks" \
+	    $(dir_gcd)gcd.v --exe $(abspath $(srcs_gcd))
+
+$(verilator_bin_gcd): $(verilator_src_gcd) $(lib_simbricks) $(srcs_gcd)
+	$(MAKE) -C $(verilator_obj_dir) -f Vgcd.mk
+
+$(bin_gcd): $(verilator_bin_gcd)
+	cp $< $@
+
+CLEAN := $(bin_gcd) $(verilator_dir_gcd) $(OBJS)
+
+ifeq ($(ENABLE_VERILATOR),y)
+ALL += $(bin_gcd)
+endif
 
 include mk/subdir_post.mk
