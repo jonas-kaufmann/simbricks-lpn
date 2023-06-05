@@ -359,10 +359,10 @@ static inline volatile union SimbricksProtoPcieH2D *simbricks_comm_h2d_alloc(
 }
 
 /* process read completion from memory to host */
-static void simbricks_comm_d2h_rcomp(simbricks_pcie_t *simbricks,
-                                     uint64 cur_ts,  // NOLINT
+static void simbricks_comm_d2h_rcomp(simbricks_pcie_t *simbricks, uint64 cur_ts,
                                      uint64 req_id, const void *data) {
-  transaction_t *transaction = (transaction_t *)req_id;  // NOLINT
+  transaction_t *transaction =
+      (transaction_t *)req_id;  // NOLINT(performance-no-int-to-ptr)
   unsigned size = SIM_transaction_size(transaction);
 
   bytes_t bytes = {data, size};
@@ -375,7 +375,7 @@ static void simbricks_comm_d2h_rcomp(simbricks_pcie_t *simbricks,
 }
 
 #define ATOM_TYPE_req_id uint64_t
-SIM_CUSTOM_ATOM(req_id); /* NOLINT */
+SIM_CUSTOM_ATOM(req_id);  // NOLINT
 
 exception_type_t rw_transaction_comp_callback(conf_object_t *obj,
                                               transaction_t *comp_transaction,

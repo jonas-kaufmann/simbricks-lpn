@@ -380,10 +380,10 @@ static void comp_waiter_event_callback(conf_object_t *obj, lang_void *data) {
 }
 
 /* process read completion from memory to host */
-static void simbricks_comm_m2h_rcomp(simbricks_mem_t *simbricks,
-                                     uint64 cur_ts,  // NOLINT
+static void simbricks_comm_m2h_rcomp(simbricks_mem_t *simbricks, uint64 cur_ts,
                                      uint64 req_id, const void *data) {
-  mem_request_t *req = (mem_request_t *)req_id;  // NOLINT
+  mem_request_t *req =
+      (mem_request_t *)req_id;  // NOLINT(performance-no-int-to-ptr)
   ASSERT(req != NULL && req->cache_entry);
   cache_entry_t *cache_entry = req->cache_entry;
   memcpy(&cache_entry->data, data, simbricks->cache_line_size);

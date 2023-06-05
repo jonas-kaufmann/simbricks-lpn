@@ -27,6 +27,7 @@ Checks: >
   -readability-magic-numbers,
   -readability-qualified-auto,
   -readability-uppercase-literal-suffix,
+  -bugprone-easily-swappable-parameters,
 WarningsAsErrors: false
 AnalyzeTemporaryDtors: false
 FormatStyle:     file
