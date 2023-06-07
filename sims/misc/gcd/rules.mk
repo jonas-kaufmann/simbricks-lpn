@@ -30,13 +30,14 @@ verilator_bin_gcd := $(verilator_obj_dir)/Vgcd
 
 srcs_gcd := $(addprefix $(d),gcd_verilator.cc)
 
-bin_gcd_workload := $(d)gcd_workload
-OBJS := $(addprefix $(d),gcd_workload.o vfio.o)
+bin_gcd_sw_workload := $(d)gcd_sw_workload
+bin_gcd_hw_workload := $(d)gcd_hw_workload
+OBJS := $(bin_gcd_sw_workload).o $(bin_gcd_hw_workload).o $(d)vfio.o
 
 
 $(verilator_src_gcd):
 	$(VERILATOR) $(VFLAGS) --cc -O3 --trace --trace-depth 1 \
-	    -CFLAGS "-I$(abspath $(lib_dir)) -iquote $(abspath $(base_dir)) -Og -g -ggdb -Wall -Wno-maybe-uninitialized" \
+	    -CFLAGS "-I$(abspath $(lib_dir)) -iquote $(abspath $(base_dir))" \
 	    --Mdir $(verilator_obj_dir) \
 		-LDFLAGS "-L$(abspath $(lib_dir)) -lsimbricks" \
 	    $(dir_gcd)gcd.v --exe $(abspath $(srcs_gcd))
@@ -49,12 +50,16 @@ $(bin_gcd): $(verilator_bin_gcd)
 
 
 # statically linked binary that can run under any Linux image
-$(bin_gcd_workload): CPPFLAGS += -static
-$(bin_gcd_workload): LDFLAGS += -static
-$(bin_gcd_workload): $(OBJS)
+$(bin_gcd_sw_workload): CPPFLAGS += -static
+$(bin_gcd_sw_workload): LDFLAGS += -static
+$(bin_gcd_sw_workload): $(bin_gcd_sw_workload).o
 
-CLEAN := $(bin_gcd) $(verilator_obj_dir) $(bin_gcd_workload) $(OBJS)
-ALL := $(bin_gcd_workload)
+$(bin_gcd_hw_workload): CPPFLAGS += -static
+$(bin_gcd_hw_workload): LDFLAGS += -static
+$(bin_gcd_hw_workload): $(bin_gcd_hw_workload).o $(d)vfio.o
+
+CLEAN := $(bin_gcd) $(verilator_obj_dir) $(bin_gcd_sw_workload) $(bin_gcd_hw_workload) $(OBJS)
+ALL := $(bin_gcd_sw_workload) $(bin_gcd_hw_workload)
 
 ifeq ($(ENABLE_VERILATOR),y)
 ALL += $(bin_gcd)
