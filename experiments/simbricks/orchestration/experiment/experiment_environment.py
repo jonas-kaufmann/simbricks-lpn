@@ -30,7 +30,7 @@ if tp.TYPE_CHECKING:  # prevent cyclic import
 class ExpEnv(object):
     """Manages the experiment environment."""
 
-    def __init__(self, repo_path: str, workdir: str, cpdir: str) -> None:
+    def __init__(self, repo_path: str, workdir: str, cpdir: str, outdir: str) -> None:
         self.create_cp = False
         """Whether a checkpoint should be created."""
         self.restore_cp = False
@@ -39,6 +39,7 @@ class ExpEnv(object):
         self.repodir = os.path.abspath(repo_path)
         self.workdir = os.path.abspath(workdir)
         self.cpdir = os.path.abspath(cpdir)
+        self.outdir = os.path.abspath(outdir)
         self.shm_base = self.workdir
         self.utilsdir = f'{self.repodir}/experiments/simbricks/utils'
         """Directory containing some utility scripts/binaries."""

@@ -269,7 +269,7 @@ def add_exp(
     if args.shmdir is not None:
         shmdir = f'{args.shmdir}/{e.name}/{run}'
 
-    env = experiment_environment.ExpEnv(args.repo, workdir, cpdir)
+    env = experiment_environment.ExpEnv(args.repo, workdir, cpdir, args.outdir)
     env.create_cp = create_cp
     env.restore_cp = restore_cp
     env.no_simbricks = no_simbricks
