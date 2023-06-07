@@ -371,6 +371,10 @@ def main():
     # register interrupt handler
     signal.signal(signal.SIGINT, lambda *_: rt.interrupt())
 
+    # make sure output directory exists so that we don't run into issues later
+    if not os.path.exists(args.outdir):
+        os.makedirs(args.outdir)
+
     # invoke runtime to run experiments
     asyncio.run(rt.start())
 

@@ -21,7 +21,6 @@
 # SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 import json
-import pathlib
 import time
 import typing as tp
 
@@ -68,7 +67,6 @@ class ExpOutput(object):
         self.sims[sim.full_name()] = obj
 
     def dump(self, outpath: str) -> None:
-        pathlib.Path(outpath).parent.mkdir(parents=True, exist_ok=True)
         with open(outpath, 'w', encoding='utf-8') as file:
             json.dump(self.__dict__, file)
 
