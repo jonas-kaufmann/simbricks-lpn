@@ -954,6 +954,27 @@ class FEMUDev(PCIDevSim):
         return cmd
 
 
+class GcdDev(PCIDevSim):
+
+    def __init__(self):
+        super().__init__()
+        self.clock_freq = 250
+        """Clock frequency in MHz."""
+        self.start_tick = 0
+        self.name = 'gcd_verilator'
+
+    def resreq_mem(self):
+        return 512  # this is a guess
+
+    def run_cmd(self, env):
+        return (
+            f'{env.repodir}/sims/misc/gcd/gcd_verilator '
+            f'{env.dev_pci_path(self)} {env.dev_shm_path(self)} '
+            f'{self.start_tick} {self.sync_period} {self.pci_latency} '
+            f'{self.clock_freq} {env.outdir}/{self.name}_dump '
+        )
+
+
 class BasicMemDev(MemDevSim):
 
     def run_cmd(self, env: ExpEnv) -> str:
