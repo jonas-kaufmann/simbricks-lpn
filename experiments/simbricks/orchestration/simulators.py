@@ -319,11 +319,13 @@ class HostSim(Simulator):
 
     def add_pcidev(self, dev: PCIDevSim) -> None:
         """Add a PCIe device to this host."""
-        dev.name = self.name + '.' + dev.name
+        if self.name and dev.name:
+            dev.name = self.name + '.' + dev.name
         self.pcidevs.append(dev)
 
     def add_memdev(self, dev: MemDevSim) -> None:
-        dev.name = self.name + '.' + dev.name
+        if self.name and dev.name:
+            dev.name = self.name + '.' + dev.name
         self.memdevs.append(dev)
 
     def add_netdirect(self, net: NetSim) -> None:
