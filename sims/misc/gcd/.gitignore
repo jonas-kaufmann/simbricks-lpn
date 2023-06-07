@@ -2,3 +2,4 @@ obj_dir/
 
 gcd_dump.vcd
 gcd_verilator
+gcd_workload

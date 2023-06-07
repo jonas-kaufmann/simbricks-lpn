@@ -28,10 +28,10 @@ verilator_obj_dir := $(d)obj_dir
 verilator_src_gcd := $(verilator_obj_dir)/Vgcd.cpp
 verilator_bin_gcd := $(verilator_obj_dir)/Vgcd
 
-vsrcs_gcd := $(wildcard $(d)rtl/*.v $(d)lib/*/rtl/*.v \
-    $(d)lib/*/lib/*/rtl/*.v)
 srcs_gcd := $(addprefix $(d),gcd_verilator.cc)
-OBJS := $(srcs_gcd:.cc=.o)
+
+bin_gcd_workload := $(d)gcd_workload
+OBJS := $(addprefix $(d),gcd_workload.o vfio.o)
 
 
 $(verilator_src_gcd):
@@ -47,7 +47,14 @@ $(verilator_bin_gcd): $(verilator_src_gcd) $(lib_simbricks) $(srcs_gcd)
 $(bin_gcd): $(verilator_bin_gcd)
 	cp $< $@
 
-CLEAN := $(bin_gcd) $(verilator_dir_gcd) $(OBJS)
+
+# statically linked binary that can run under any Linux image
+$(bin_gcd_workload): CPPFLAGS += -static
+$(bin_gcd_workload): LDFLAGS += -static
+$(bin_gcd_workload): $(OBJS)
+
+CLEAN := $(bin_gcd) $(verilator_obj_dir) $(bin_gcd_workload) $(OBJS)
+ALL := $(bin_gcd_workload)
 
 ifeq ($(ENABLE_VERILATOR),y)
 ALL += $(bin_gcd)
