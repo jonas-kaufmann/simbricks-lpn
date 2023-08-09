@@ -1,4 +1,4 @@
-name: lint-python
+name: lint-pylint
 
 on:
   pull_request:
@@ -6,7 +6,7 @@ on:
     branches: [main]
 
 jobs:
-  lint-python:
+  lint-pylint:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
@@ -16,4 +16,4 @@ jobs:
         architecture: 'x64'
     - run: |
         pip install pylint
-        make lint-python
+        make lint-pylint
