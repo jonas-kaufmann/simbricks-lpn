@@ -15,7 +15,8 @@ apt-get -y install \
     busybox \
     numactl \
     sysbench \
-    time
+    time \
+    bsdextrautils
 
 pushd /tmp/input
 mv guestinit.sh /home/ubuntu/guestinit.sh
