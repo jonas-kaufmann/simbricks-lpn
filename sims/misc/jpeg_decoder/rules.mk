@@ -50,7 +50,17 @@ $(verilator_bin_jpeg_decoder): $(verilator_mk_jpeg_decoder) $(lib_simbricks) $(s
 $(bin_jpeg_decoder): $(verilator_bin_jpeg_decoder)
 	cp $< $@
 
-CLEAN := $(bin_jpeg_decoder) $(verilator_obj_dir)
+# jpeg_decoder_workload
+bin_workload := $(d)jpeg_decoder_workload
+OBJS := $(bin_workload).o $(d)vfio.o
+
+# statically linked binary that can run under any Linux image
+$(bin_workload): CPPFLAGS += -static
+$(bin_workload): LDFLAGS += -static
+$(bin_workload): $(bin_workload).o $(d)vfio.o
+
+CLEAN := $(bin_jpeg_decoder) $(verilator_obj_dir) $(bin_workload) $(OBJS)
+ALL := $(bin_workload)
 
 ifeq ($(ENABLE_VERILATOR),y)
 ALL += $(bin_jpeg_decoder)
