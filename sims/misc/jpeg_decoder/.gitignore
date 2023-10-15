@@ -1,0 +1,4 @@
+obj_dir/
+
+*.vcd
+jpeg_decoder_verilator
