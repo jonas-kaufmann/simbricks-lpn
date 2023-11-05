@@ -50,6 +50,32 @@ $(verilator_bin_jpeg_decoder): $(verilator_mk_jpeg_decoder) $(lib_simbricks) $(s
 $(bin_jpeg_decoder): $(verilator_bin_jpeg_decoder)
 	cp $< $@
 
+# jpeg_deocder_multiple_verilator
+bin_jpeg_decoder_multiple2 := $(d)jpeg_decoder_multiple2_verilator
+verilator_bin_jpeg_decoder_multiple2 := $(verilator_obj_dir)/Vjpeg_decoder_multiple2
+verilator_mk_jpeg_decoder_multiple2 := $(verilator_bin_jpeg_decoder_multiple2).mk
+srcs_jpeg_decoder_multiple2 := $(addprefix $(d),jpeg_decoder_multiple2_verilator.cc axi.cc)
+
+$(verilator_mk_jpeg_decoder_multiple2):
+	$(VERILATOR) $(VFLAGS) --cc -O3 \
+		--trace --no-trace-top --no-trace-params --trace-underscore \
+		-CFLAGS "-I$(abspath $(lib_dir)) -iquote $(abspath $(base_dir))" \
+		--Mdir $(verilator_obj_dir) \
+		-LDFLAGS "-L$(abspath $(lib_dir)) -lsimbricks" \
+		-y /home/jonask/Repos/jpeg_decoder_multiple2_sim/xsim/srcs/rtl/xil_defaultlib \
+		-y /home/jonask/Repos/jpeg_decoder_multiple2_sim/xsim/srcs/sources_1/new \
+		--exe \
+		--top-module jpeg_decoder_multiple2 \
+		/home/jonask/Repos/jpeg_decoder_multiple2_sim/xsim/srcs/sources_1/bd/jpeg_decoder_multiple2/ip/*/sim/* \
+		/home/jonask/Repos/jpeg_decoder_multiple2_sim/xsim/srcs/sources_1/bd/jpeg_decoder_multiple2/sim/jpeg_decoder_multiple2.v \
+		$(abspath $(srcs_jpeg_decoder_multiple2))
+
+$(verilator_bin_jpeg_decoder_multiple2): $(verilator_mk_jpeg_decoder_multiple2) $(lib_simbricks) $(srcs_jpeg_decoder_multiple2)
+	$(MAKE) -C $(verilator_obj_dir) -f $(abspath $(verilator_mk_jpeg_decoder_multiple2))
+
+$(bin_jpeg_decoder_multiple2): $(verilator_bin_jpeg_decoder_multiple2)
+	cp $< $@
+
 # jpeg_decoder_workload
 bin_workload := $(d)jpeg_decoder_workload
 OBJS := $(bin_workload).o $(d)vfio.o
@@ -63,7 +89,7 @@ CLEAN := $(bin_jpeg_decoder) $(verilator_obj_dir) $(bin_workload) $(OBJS)
 ALL := $(bin_workload)
 
 ifeq ($(ENABLE_VERILATOR),y)
-ALL += $(bin_jpeg_decoder)
+ALL += $(bin_jpeg_decoder) $(bin_jpeg_decoder_multiple)
 endif
 
 include mk/subdir_post.mk

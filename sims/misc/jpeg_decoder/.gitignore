@@ -2,4 +2,5 @@ obj_dir/
 
 *.vcd
 jpeg_decoder_verilator
+jpeg_decoder_multiple2_verilator
 jpeg_decoder_workload
