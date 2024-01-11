@@ -71,10 +71,6 @@ class PcieBM {
    * `di`.*/
   virtual void SetupIntro(struct SimbricksProtoPcieDevIntro &di) = 0;
 
-  // FIXME At the moment, RegRead and RegWrite assume that they get a response
-  // immediately without any LPN involvement. Instead, we could also producer
-  // tokens here and query up an event.
-
   /* Invoked when receiving a register read request `bar`:`addr` of length
    * `len`. Store the result in `dest`. */
   virtual void RegRead(uint8_t bar, uint64_t addr, void *dest, size_t len) = 0;
@@ -84,14 +80,8 @@ class PcieBM {
   virtual void RegWrite(uint8_t bar, uint64_t addr, const void *src,
                         size_t len) = 0;
 
-  // FIXME This is the place where we produce tokens in the LPN
-
   /* The previously issued DMA operation `op` has been completed. */
   virtual void DmaComplete(DMAOp &op) = 0;
-
-  // FIXME I'd suggest we represent the firing of transitions as events.
-  // Furthermore, if an event is triggered, we check whether there's a token
-  // in an output place and if so, invoke the functional code.
 
   /* Execute the previously scheduled event `evt`. A call to this function This
   function should also free its associated memory. */
