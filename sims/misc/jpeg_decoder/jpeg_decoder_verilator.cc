@@ -57,7 +57,7 @@ static JpegDecoderMemWriter jpeg_decoder_mem_writer{top};
 static JpegDecoderMMIOInterface jpeg_decoder_mmio{top, mmio_done};
 static ClockGaterMMIOInterface clock_gater_mmio{top, mmio_done};
 
-static uint64_t clock_period = 1'000'000 / 150ULL; // 150 MHz
+static uint64_t clock_period = 1'000'000 / 150ULL;  // 150 MHz
 static int exiting;
 static int print_cur_ts_requested;
 static bool tracing_active;
@@ -207,7 +207,7 @@ bool h2d_write(volatile struct SimbricksProtoPcieH2DWrite &write,
 #endif
 
   uint64_t val = 0;
-  memcpy(&val, (void *)write.data, write.len);
+  memcpy(&val, (void *)write.data, std::min<size_t>(write.len, (sizeof(val))));
 
   switch (write.bar) {
     case 0:
