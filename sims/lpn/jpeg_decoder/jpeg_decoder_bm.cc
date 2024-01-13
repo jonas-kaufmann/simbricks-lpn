@@ -1,6 +1,23 @@
 #include "jpeg_decoder_bm.hh"
 
+#include <bits/types/siginfo_t.h>
+#include <signal.h>
+
 #include <simbricks/pciebm/pciebm.hh>
+
+static JpegDecoderBm jpeg_decoder{};
+
+static void sigint_handler(int dummy) {
+  jpeg_decoder.SIGINTHandler();
+}
+
+static void sigusr1_handler(int dummy) {
+  jpeg_decoder.SIGUSR1Handler();
+}
+
+static void sigusr2_handler(int dummy) {
+  jpeg_decoder.SIGUSR2Handler();
+}
 
 void JpegDecoderBm::SetupIntro(struct SimbricksProtoPcieDevIntro &dev_intro) {
 }
@@ -27,8 +44,10 @@ void JpegDecoderBm::DevctrlUpdate(
     struct SimbricksProtoPcieH2DDevctrl &devctrl) {
 }
 
-int main(int argc, char *argv[])
-{
-  JpegDecoderBm jpeg_decoder{};
-  // TODO(Jonas) invoke main simulation loop, set up interrupt handler, etc.
+int main(int argc, char *argv[]) {
+  signal(SIGINT, sigint_handler);
+  signal(SIGUSR1, sigusr1_handler);
+  signal(SIGUSR1, sigusr2_handler);
+  jpeg_decoder.ParseArgs(argc, argv);
+  jpeg_decoder.RunMain();
 }

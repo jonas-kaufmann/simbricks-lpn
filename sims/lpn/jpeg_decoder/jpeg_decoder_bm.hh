@@ -2,7 +2,7 @@
 
 #include <simbricks/pciebm/pciebm.hh>
 
-class JpegDecoderBm : pciebm::PcieBM {
+class JpegDecoderBm : public pciebm::PcieBM {
   void SetupIntro(struct SimbricksProtoPcieDevIntro &dev_intro) override;
 
   void RegRead(uint8_t bar, uint64_t addr, void *dest, size_t len) override;

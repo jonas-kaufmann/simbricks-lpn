@@ -69,7 +69,7 @@ class PcieBM {
 
   /* Initialize device specific parameters (pci dev/vendor id, BARs etc. in
    * `di`.*/
-  virtual void SetupIntro(struct SimbricksProtoPcieDevIntro &di) = 0;
+  virtual void SetupIntro(struct SimbricksProtoPcieDevIntro &devintro) = 0;
 
   /* Invoked when receiving a register read request `bar`:`addr` of length
    * `len`. Store the result in `dest`. */
@@ -81,7 +81,7 @@ class PcieBM {
                         size_t len) = 0;
 
   /* The previously issued DMA operation `op` has been completed. */
-  virtual void DmaComplete(DMAOp &op) = 0;
+  virtual void DmaComplete(DMAOp &dma_op) = 0;
 
   /* Execute the previously scheduled event `evt`. A call to this function This
   function should also free its associated memory. */
@@ -134,6 +134,26 @@ class PcieBM {
   struct SimbricksPcieIf pcieif_;
   struct SimbricksProtoPcieDevIntro dintro_;
 
+  /* for signal handlers */
+  volatile bool exiting_;
+  volatile bool stat_flag_;
+
+  uint64_t h2d_poll_total_;
+  uint64_t h2d_poll_suc_;
+  uint64_t h2d_poll_sync_;
+  /* counted from signal USR2 */
+  uint64_t s_h2d_poll_total_;
+  uint64_t s_h2d_poll_suc_;
+  uint64_t s_h2d_poll_sync_;
+
+  uint64_t n2d_poll_total_;
+  uint64_t n2d_poll_suc_;
+  uint64_t n2d_poll_sync_;
+  /* counted from signal USR2 */
+  uint64_t s_n2d_poll_total_;
+  uint64_t s_n2d_poll_suc_;
+  uint64_t s_n2d_poll_sync_;
+
   volatile union SimbricksProtoPcieD2H *D2HAlloc();
 
   void H2DRead(volatile struct SimbricksProtoPcieH2DRead *read);
@@ -151,11 +171,19 @@ class PcieBM {
   void YieldPoll();
   int PcieIfInit();
 
+ public:
   /** Parse command line arguments. */
   int ParseArgs(int argc, char *argv[]);
 
   /** Run the simulation */
   int RunMain();
+
+  /* This handler should be invoked when receiving a SIGINT signal. */
+  void SIGINTHandler();
+  /* This handler should be invoked when receiving a SIGUSR1 signal. */
+  void SIGUSR1Handler();
+  /* This handler should be invoked when receiving a SIGUSR2 signal. */
+  void SIGUSR2Handler();
 };
 
 }  // namespace pciebm
