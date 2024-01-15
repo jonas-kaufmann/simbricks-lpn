@@ -1,7 +1,6 @@
 #ifndef __LPN_PLACE_TRANSITION__
 #define __LPN_PLACE_TRANSITION__
 #define N_ELEM 10
-#define LARGE 1<<30
 #include <string>
 #include <map>
 #include <set>
@@ -14,6 +13,11 @@
 #define NEW_QT(T, x) QT_type(T)* x = new QT_type(T)
 #define NEW_TOKEN(T, x) T* x = new T;
 
+namespace lpn {
+
+const int LARGE 1<<30; 
+
+}
 using namespace std;
 
 class base_token {
@@ -79,7 +83,7 @@ public:
 };
 
 template<typename Token_Type = empty_token>
-struct place : public base_place
+class place : public base_place
 {
   public:
   place(string asid) : base_place(asid) {}
@@ -136,24 +140,25 @@ struct place : public base_place
 
 typedef struct transition
 {
-  string id;
-  // int (*delay_f)();
-  std::function<int()> delay_f;
+  public:
+    string id;
+    // int (*delay_f)();
+    std::function<int()> delay_f;
 
-  create_input_vector_list();
-  create_input_w_vector_list();
-  create_input_guard_vector_list();
-  create_input_threshold_vector_list();
-  create_output_vector_list();
-  
-  deque<int> consume_tokens;
-  
-  int delay_event=-1; //-1 if no event
-  int disable = 0;
-  int pip=-1; 
-  int pip_ts = 0;
-  int count=0;
-  int time=0;
+    create_input_vector_list();
+    create_input_w_vector_list();
+    create_input_guard_vector_list();
+    create_input_threshold_vector_list();
+    create_output_vector_list();
+    
+    deque<int> consume_tokens;
+    
+    int delay_event=-1; //-1 if no event
+    int disable = 0;
+    int pip=-1; 
+    int pip_ts = 0;
+    int count=0;
+    int time=0;
 }transition;
 
 int check_token_requirement(base_place* self, int num){
@@ -254,12 +259,12 @@ int min_time(transition* self){
 
    if(self->delay_event != -1) 
      return self->delay_event;
-   return LARGE;
+   return lpn::LARGE;
 }
 
 int min_time_g(transition** all_ts, int size){
 
-  int min = LARGE;
+  int min = lpn::LARGE;
    for(int i=0; i<size; i++){
     int _t = min_time(all_ts[i]);
     // printf("%d ", _t);
@@ -298,21 +303,6 @@ int sync(transition* self, int time){
    return 0;
 }
 
-
-// int sync_independent(transition* self){
-
-//    if (self->delay_event == -1){
-//       return 1;
-//    }
-   
-//    if(time >= self->delay_event){
-//     // reordered the two
-//      accept_t(self);
-//      fire_t(self);
-//      self->delay_event = -1;
-//    }
-//    return 0;
-// }
 
 int trigger_for_path(transition* self){
 

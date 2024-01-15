@@ -9,7 +9,7 @@
 
 #include "jpeg_bit_buffer.h"
 #include "jpeg_dht.h"
-
+#include "rollback_buf.hh"
 #define dprintf
 
 //-----------------------------------------------------------------------------
@@ -18,6 +18,9 @@
 class jpeg_mcu_block
 {
 public:
+    size_t global_buf_idx = 0;
+    uint8_t* global_buf = NULL;
+
     jpeg_mcu_block(jpeg_bit_buffer *bit_buf, jpeg_dht *dht)
     {
         m_bit_buffer = bit_buf;
@@ -34,12 +37,18 @@ public:
     int decode(int table_idx, int16_t &olddccoeff, int32_t *block_out)
     {
         int samples = 0;
-        int eob_count = 0;
+
         for (int coeff=0;coeff<64;coeff++)
         {
             // Read 32-bit word
+            // have to check here
+            if (m_bit_buffer->marker_detected){
+                CHECK_ENOUGH_BUF(m_bit_buffer->global_buf_idx + m_bit_buffer->m_rd_offset/8+3, m_bit_buffer->global_buf_len+4, m_bit_buffer->global_buf, -1);
+            }else{
+                CHECK_ENOUGH_BUF(m_bit_buffer->global_buf_idx + m_bit_buffer->m_rd_offset/8+3, m_bit_buffer->global_buf_len, m_bit_buffer->global_buf, -1);
+            }
             uint32_t input_word = m_bit_buffer->read_word();
-
+            dprintf("read word %04x \n", input_word);
             // Start with upper 16-bits
             uint16_t input_data = input_word >> 16;
 
@@ -49,35 +58,39 @@ public:
             int coef_bits  = code & 0xF;
 
             // Move input point past decoded data
-            if (coeff == 0)
+            if (coeff == 0){
                 m_bit_buffer->advance(code_width + coef_bits);
+                CHECK_ENOUGH_BUF(m_bit_buffer->global_buf_idx + m_bit_buffer->m_rd_offset/8, m_bit_buffer->global_buf_len, m_bit_buffer->global_buf, -1);
+            }
             // End of block or ZRL (no coefficient)
-            else if (code == 0 || code == 0xF0)
+            else if (code == 0 || code == 0xF0){
                 m_bit_buffer->advance(code_width);
-            else
+                CHECK_ENOUGH_BUF(m_bit_buffer->global_buf_idx + m_bit_buffer->m_rd_offset/8, m_bit_buffer->global_buf_len, m_bit_buffer->global_buf, -1);
+            }
+            else{
                 m_bit_buffer->advance(code_width + coef_bits);
+                CHECK_ENOUGH_BUF(m_bit_buffer->global_buf_idx + m_bit_buffer->m_rd_offset/8, m_bit_buffer->global_buf_len, m_bit_buffer->global_buf, -1);
+            }
 
             // Use remaining data for actual coeffecient
-            // input_data = input_word >> (16 - code_width);
+            input_data = input_word >> (16 - code_width);
 
             // DC
             if (coeff == 0)
             {
+                input_data >>= (16 - code);
 
-                // input_data >>= (16 - code);
-
-                // int16_t dcoeff = decode_number(input_data, coef_bits) + olddccoeff;
-                // olddccoeff = dcoeff;
-                // block_out[samples++] = (0 << 16) | (dcoeff & 0xFFFF);
+                int16_t dcoeff = decode_number(input_data, coef_bits) + olddccoeff;
+                olddccoeff = dcoeff;
+                block_out[samples++] = (0 << 16) | (dcoeff & 0xFFFF);
             }
             // AC
             else
             {
-                eob_count += 1;
                 // End of block
                 if (code == 0)
                 {
-                    dprintf("SMPL: EOB\n");
+                    printf("SMPL: EOB\n");
                     coeff = 64;
                     break;
                 }
@@ -86,25 +99,24 @@ public:
                 if (code == 0xF0)
                 {
                     // When the ZRL code comes, it is regarded as 15 zero data
-                    dprintf("SMPL: ZRL\n");
+                    printf("SMPL: ZRL\n");
                     coeff += 15; // +1 in the loop
                     continue;
                 }
-                else if (code > 15){
-                    coeff += code >> 4;
+                else if (code > 15)
+                    coeff   += code >> 4;
+
+                input_data >>= (16 - coef_bits);
+
+                if (coeff < 64)
+                {
+                    int16_t acoeff = decode_number(input_data, coef_bits);
+                    block_out[samples++] = (coeff << 16) | (acoeff & 0xFFFF);
                 }
-
-                // input_data >>= (16 - coef_bits);
-
-                // if (coeff < 64)
-                // {
-                //     int16_t acoeff = decode_number(input_data, coef_bits);
-                //     block_out[samples++] = (coeff << 16) | (acoeff & 0xFFFF);
-                // }
             }
         }
-
-        return eob_count;
+        
+        return samples;
     }
 
 
