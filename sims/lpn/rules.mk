@@ -1,4 +1,4 @@
-# Copyright 2021 Max Planck Institute for Software Systems, and
+# Copyright 2024 Max Planck Institute for Software Systems, and
 # National University of Singapore
 #
 # Permission is hereby granted, free of charge, to any person obtaining
@@ -22,11 +22,6 @@
 
 include mk/subdir_pre.mk
 
-$(eval $(call subdir,external))
-$(eval $(call subdir,mem))
-$(eval $(call subdir,misc))
-$(eval $(call subdir,net))
-$(eval $(call subdir,nic))
-$(eval $(call subdir,lpn))
+$(eval $(call subdir,jpeg_decoder))
 
 include mk/subdir_post.mk

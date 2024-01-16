@@ -30,6 +30,7 @@ $(eval $(call subdir,base))
 $(eval $(call subdir,mem))
 $(eval $(call subdir,network))
 $(eval $(call subdir,pcie))
+$(eval $(call subdir,pciebm))
 $(eval $(call subdir,nicif))
 $(eval $(call subdir,nicbm))
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2023 Max Planck Institute for Software Systems, and
+ * Copyright 2024 Max Planck Institute for Software Systems, and
  * National University of Singapore
  *
  * Permission is hereby granted, free of charge, to any person obtaining

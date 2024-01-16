@@ -1,5 +1,5 @@
 /*
- * Copyright 2023 Max Planck Institute for Software Systems, and
+ * Copyright 2024 Max Planck Institute for Software Systems, and
  * National University of Singapore
  *
  * Permission is hereby granted, free of charge, to any person obtaining
@@ -32,8 +32,9 @@
 #include <vector>
 
 #include <simbricks/base/cxxatomicfix.h>
-
+extern "C" {
 #include "simbricks/pcie/if.h"
+}
 
 namespace pciebm {
 
@@ -47,12 +48,13 @@ struct DMAOp {
 struct TimedEvent {
   uint64_t time;
   int priority;
-
-  bool operator>(const TimedEvent &other) const {
-    return time > other.time ||
-           (time == other.time && priority > other.priority);
-  }
 };
+
+/* This is required for the priority queue of references to `TimedEvent`*/
+inline bool operator>(const TimedEvent &first, const TimedEvent &second) {
+  return first.time > second.time ||
+         (first.time == second.time && first.priority > second.priority);
+}
 
 /* This is an abstract base for PCIe device simulators that implement a
  * behavioral model. The idea is to inherit from this class and implement the
