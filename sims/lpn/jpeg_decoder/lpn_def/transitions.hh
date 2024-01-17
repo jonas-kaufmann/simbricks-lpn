@@ -3,61 +3,61 @@
 #include "../../lpn_common/place_transition.hh"
 #include "places.hh"
 #include "funcs.hh"
-transition t1 = {
+Transition t1 = {
     .id = "1",
-    .delay_f = con_delay(0),
+    .delay_f = conDelay(0),
     .p_input = {&ptasks, &p8},
-    .pi_w = {take_1_token, take_1_token},
+    .pi_w = {take1Token, take1Token},
     .p_output = {&p7},
-    .po_w = {pass_empty_token()},
+    .po_w = {passEmptyToken()},
 };
 
-transition t0 = {
+Transition t0 = {
     .id = "0",
-    .delay_f = mcu_delay,
+    .delay_f = mcuDelay,
     .p_input = {&p7, &p4, &pvarlatency},
-    .pi_w = {take_1_token, take_1_token, take_1_token},
+    .pi_w = {take1Token, take1Token, take1Token},
     .p_output = {&p0, &p8},
-    .po_w = {pass_empty_token(),pass_empty_token()},
+    .po_w = {passEmptyToken(),passEmptyToken()},
 };
 
-transition t5 = {
+Transition t5 = {
     .id = "5",
-    .delay_f = con_delay(65),
+    .delay_f = conDelay(65),
     .p_input = {&p1, &p2, &p3},
-    .pi_w = {take_1_token, take_1_token, take_1_token},
+    .pi_w = {take1Token, take1Token, take1Token},
     .p_output = {&pdone, &p6},
-    .po_w = {pass_empty_token(),pass_empty_token()},
+    .po_w = {passEmptyToken(),passEmptyToken()},
 };
 
-transition t4 = {
+Transition t4 = {
     .id = "4",
-    .delay_f = con_delay(66),
+    .delay_f = conDelay(66),
     .p_input = {&p0, &p22, &p6},
-    .pi_w = {take_1_token, take_1_token, take_4_token},
+    .pi_w = {take1Token, take1Token, take4Token},
+    .pi_w_threshold = {0, 0, 2},
     .p_output = {&p3, &p20, &p4},
-    .pi_w_threshold = {0, 0, 2},
-    .po_w = {pass_4_empty_token(),pass_4_empty_token(), pass_empty_token()},
+    .po_w = {pass4EmptyToken(),pass4EmptyToken(), passEmptyToken()},
 };
 
-transition t3 = {
+Transition t3 = {
     .id = "3",
-    .delay_f = con_delay(66),
+    .delay_f = conDelay(66),
     .p_input = {&p0, &p21, &p6},
-    .pi_w = {take_1_token, take_4_token, take_0_token},
-    .p_output = {&p2, &p22, &p4},
+    .pi_w = {take1Token, take4Token, take0Token},
     .pi_w_threshold = {0, 0, 2},
-    .po_w = {pass_4_empty_token(),pass_empty_token(), pass_empty_token()},
+    .p_output = {&p2, &p22, &p4},
+    .po_w = {pass4EmptyToken(),passEmptyToken(), passEmptyToken()},
 };
 
-transition t2 = {
+Transition t2 = {
     .id = "2",
-    .delay_f = con_delay(66),
+    .delay_f = conDelay(66),
     .p_input = {&p0, &p20, &p6},
-    .pi_w = {take_1_token, take_1_token, take_0_token},
-    .p_output = {&p1, &p21, &p4},
     .pi_w_threshold = {0, 0, 2},
-    .po_w = {pass_empty_token(),pass_empty_token(), pass_empty_token()},
+    .pi_w = {take1Token, take1Token, take0Token},
+    .p_output = {&p1, &p21, &p4},
+    .po_w = {passEmptyToken(),passEmptyToken(), passEmptyToken()},
 };
 
 #endif

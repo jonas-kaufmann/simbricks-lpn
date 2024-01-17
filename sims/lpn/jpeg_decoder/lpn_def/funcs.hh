@@ -4,47 +4,49 @@
 #include <functional>
 #include "places.hh"
 
-std::function<int()> con_delay(int constant){
+std::function<int()> conDelay(int constant){
     auto delay = [&, constant]() -> int{
         return constant;
     };
+    return delay;
 };
 
-int take_1_token(){
+int take1Token(){
     return 1;
 }
 
-int take_0_token(){
+int take0Token(){
     return 0;
 }
 
-int take_4_token(){
+int take4Token(){
     return 4;
 }
 
-std::function<int()> take_some_token(int constant){
+std::function<int()> takeSomeToken(int constant){
     auto num_tokens = [&, constant]() -> int{
         return constant;
     };
+    return num_tokens;
 };
 
-int mcu_delay(){
+int mcuDelay(){
     return pvarlatency.tokens[0]->delay;
 };
 
-std::function<void(base_place*)> pass_empty_token() {
-    auto output_token = [&](base_place* output_place) -> void {
-        NEW_TOKEN(empty_token, new_token);
-        output_place->push_token(new_token);
+std::function<void(BasePlace*)> passEmptyToken() {
+    auto output_token = [&](BasePlace* output_place) -> void {
+        NEW_TOKEN(EmptyToken, new_token);
+        output_place->pushToken(new_token);
     };
     return output_token;
 };
 
-std::function<void(base_place*)> pass_4_empty_token() {
-    auto output_token = [&](base_place* output_place) -> void {
+std::function<void(BasePlace*)> pass4EmptyToken() {
+    auto output_token = [&](BasePlace* output_place) -> void {
         for(int i=0; i<4; i++){
-            NEW_TOKEN(empty_token, new_token);
-            output_place->push_token(new_token);
+            NEW_TOKEN(EmptyToken, new_token);
+            output_place->pushToken(new_token);
         }
     };
     return output_token;

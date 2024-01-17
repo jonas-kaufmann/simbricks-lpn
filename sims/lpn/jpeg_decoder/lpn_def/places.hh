@@ -3,23 +3,23 @@
 #include "../../lpn_common/place_transition.hh"
 #include "token_types.hh"
 
-place<> ptasks("ptasks"); 
-place<> p0("p0"); 
-place<> p1("p1");
-place<> p2("p2"); 
-place<> p3("p3");
-place<> p4("p4"); 
-place<> p5("p5");
-place<> p6("p6"); 
-place<> p7("p7");
-place<> p8("p8"); 
-place<> p10("p10");
-place<> p11("p11"); 
-place<> p20("p20");
-place<> p21("p21"); 
-place<> p22("p22");
-place<> pdone("pdone"); 
-place<mcu_token> pvarlatency("pvarlatency");
+Place<> ptasks("ptasks"); 
+Place<> p0("p0"); 
+Place<> p1("p1");
+Place<> p2("p2"); 
+Place<> p3("p3");
+Place<> p4("p4"); 
+Place<> p5("p5");
+Place<> p6("p6"); 
+Place<> p7("p7");
+Place<> p8("p8"); 
+Place<> p10("p10");
+Place<> p11("p11"); 
+Place<> p20("p20");
+Place<> p21("p21"); 
+Place<> p22("p22");
+Place<> pdone("pdone"); 
+Place<mcu_token> pvarlatency("pvarlatency");
 
 
 #endif

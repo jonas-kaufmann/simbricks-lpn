@@ -5,8 +5,8 @@
 CREATE_TOKEN_TYPE(
 mcu_token,
 int delay=0;
-map<string, int>* as_dictionary() override{
-    map<string, int>* dict = new map<string, int>;
+std::map<std::string, int>* asDictionary() override{
+    std::map<std::string, int>* dict = new std::map<std::string, int>;
     dict->operator[]("delay")=delay; 
     return dict; 
 })

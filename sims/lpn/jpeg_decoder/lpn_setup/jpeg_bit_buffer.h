@@ -6,7 +6,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <assert.h>
-#include "rollback_buf.hh"
+#include "../../lpn_helper/rollback_buf.hh"
 #define ddprintf
 
 #ifndef TEST_HOOKS_BITBUFFER

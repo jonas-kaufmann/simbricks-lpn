@@ -22,14 +22,12 @@
 
 include mk/subdir_pre.mk
 
-bin_jpeg_decoder_bm := $(d)jpeg_decoder_bm
+lib_lpnsim := $(d)liblpnsim.a
 
-OBJS := $(addprefix $(d),jpeg_decoder_bm.o)
+OBJS := $(addprefix $(d),lpn_sim.o)
+OBJS += $(addprefix $(d),place_transition.o)
 
-$(OBJS): CPPFLAGS := $(CPPFLAGS)
+$(lib_lpnsim): $(OBJS)
 
-$(bin_jpeg_decoder_bm): $(OBJS) $(lib_pciebm) $(lib_pcie) $(lib_base) $(lib_lpnsim)
-
-CLEAN := $(bin_jpeg_decoder_bm) $(OBJS)
-ALL := $(bin_jpeg_decoder_bm)
+CLEAN := $(lib_lpnsim) $(OBJS)
 include mk/subdir_post.mk

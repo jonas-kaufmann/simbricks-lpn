@@ -16,11 +16,3 @@ class JpegDecoderBm : public pciebm::PcieBM {
 
   void DevctrlUpdate(struct SimbricksProtoPcieH2DDevctrl &devctrl) override;
 };
-
-class LpnCommitEvent : pciebm::TimedEvent{
-  std::string trasition_id; 
-};
-
-class Lpn {
-
-}

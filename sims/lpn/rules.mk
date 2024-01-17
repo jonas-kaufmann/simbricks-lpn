@@ -22,6 +22,7 @@
 
 include mk/subdir_pre.mk
 
+$(eval $(call subdir,lpn_common))
 $(eval $(call subdir,jpeg_decoder))
 
 include mk/subdir_post.mk

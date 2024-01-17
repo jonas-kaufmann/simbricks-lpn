@@ -7,6 +7,7 @@
 #include <unistd.h>
 #include <assert.h>
 #include <vector>
+#include <cmath>
 
 #include "jpeg_dqt.h"
 #include "jpeg_dht.h"
@@ -14,8 +15,10 @@
 #include "jpeg_idct_ifast.h"
 #include "jpeg_bit_buffer.h"
 #include "jpeg_mcu_block.h"
-#include "rollback_buf.hh"
+#include "../../lpn_helper/rollback_buf.hh"
+#include "../lpn_def/places.hh"
 
+static uint64_t timestamp = 0;
 static int finished = 0;
 static jpeg_dqt        m_dqt;
 static jpeg_dht        m_dht;
@@ -31,14 +34,22 @@ static std::vector<int> mcu_cnt;
 
 static uint16_t m_width;
 static uint16_t m_height;
+static int num_tokens_for_cur_img = 0;
 
-typedef enum eJpgMode
+bool IsCurImgFinished() {
+    if (num_tokens_for_cur_img == 0){
+        return false;
+    }
+    return pdone.tokensLen() == int(std::ceil(m_width/8.0)*std::ceil(m_height/8.0));
+}
+
+using t_jpeg_mode = enum eJpgMode
 {
     JPEG_MONOCHROME,
     JPEG_YCBCR_444,
     JPEG_YCBCR_420,
     JPEG_UNSUPPORTED
-} t_jpeg_mode;
+};
 
 static t_jpeg_mode m_mode = JPEG_UNSUPPORTED;
 
@@ -53,8 +64,11 @@ static uint8_t m_dqt_table[3];
 #define dprintf
 #define dprintf_blk(_name, _arr, _max) for (int __i=0;__i<_max;__i++) { dprintf("%s: %d -> %d\n", _name, __i, _arr[__i]); }
 
+size_t GetSizeOfRGB(){
+    return m_height * m_width;
+}
 uint8_t *GetMOutputR(){
-    static uint8_t *m_output = NULL;
+    static uint8_t *m_output = nullptr;
     if(!m_output){
         m_output = new uint8_t[m_height * m_width];
         memset(m_output, 0, m_height * m_width);
@@ -63,7 +77,7 @@ uint8_t *GetMOutputR(){
 }
 
 uint8_t *GetMOutputG(){
-    static uint8_t *m_output = NULL;
+    static uint8_t *m_output = nullptr;
     if(!m_output){
         m_output = new uint8_t[m_height * m_width];
         memset(m_output, 0, m_height * m_width);
@@ -72,7 +86,7 @@ uint8_t *GetMOutputG(){
 }
 
 uint8_t *GetMOutputB(){
-    static uint8_t *m_output = NULL;
+    static uint8_t *m_output = nullptr;
     if(!m_output){
         m_output = new uint8_t[m_height * m_width];
         memset(m_output, 0, m_height * m_width);
@@ -344,8 +358,18 @@ static bool DecodeImage(void)
         // }
         printf("finished 6 blocks \n");
         finished += 6;
-        for(int i = 0; i<6; i++){
-            printf("cnt %d dc_Y %d \n", count_6[i], dc_coeff_Y);
+        for(int i : count_6){
+            printf("cnt %d dc_Y %d \n", i, dc_coeff_Y);
+        }
+        for(int cnt : count_6){
+            NEW_TOKEN(mcu_token, new_token);
+            new_token->delay = 3*(cnt) + 6;
+            new_token->ts = timestamp;
+            pvarlatency.tokens.push_back(new_token);
+            
+            NEW_TOKEN(EmptyToken, ne_token);
+            ne_token->ts = timestamp;
+            ptasks.tokens.push_back(ne_token);
         }
         // if(finished > 203*6) assert(0);
     }
@@ -359,9 +383,9 @@ static int state = 0;
 static int mcu_start = 0;
 void writeout_img();
 
-int UpdateLpnState(uint8_t *buf, size_t len)
+int UpdateLpnState(uint8_t *buf, size_t len, uint64_t ts)
 {
-
+    timestamp = ts;
     buf = AugmentBufWithLast(buf, len);
 
     dprintf("update lpn state with bytes of length %d\n", len);

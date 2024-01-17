@@ -9,7 +9,7 @@
 
 #include "jpeg_bit_buffer.h"
 #include "jpeg_dht.h"
-#include "rollback_buf.hh"
+#include "../../lpn_helper/rollback_buf.hh"
 #define dprintf
 
 //-----------------------------------------------------------------------------
