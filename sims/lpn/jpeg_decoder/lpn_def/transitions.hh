@@ -54,8 +54,8 @@ Transition t2 = {
     .id = "2",
     .delay_f = conDelay(66),
     .p_input = {&p0, &p20, &p6},
-    .pi_w_threshold = {0, 0, 2},
     .pi_w = {take1Token, take1Token, take0Token},
+    .pi_w_threshold = {0, 0, 2},
     .p_output = {&p1, &p21, &p4},
     .po_w = {passEmptyToken(),passEmptyToken(), passEmptyToken()},
 };
