@@ -43,6 +43,10 @@ bool IsCurImgFinished() {
     return pdone.tokensLen() == int(std::ceil(m_width/8.0)*std::ceil(m_height/8.0));
 }
 
+void Reset() {
+    pdone.reset();
+}
+
 using t_jpeg_mode = enum eJpgMode
 {
     JPEG_MONOCHROME,
