@@ -22,14 +22,29 @@
 
 include mk/subdir_pre.mk
 
+# JPEG decoder behavioral model
 bin_jpeg_decoder_bm := $(d)jpeg_decoder_bm
 
-OBJS := $(addprefix $(d),jpeg_decoder_bm.o)
+bm_objs := $(addprefix $(d),jpeg_decoder_bm.o)
 
-$(OBJS): CPPFLAGS := $(CPPFLAGS)
+$(bm_objs): CPPFLAGS += -g -ggdb
+$(bin_jpeg_decoder_bm): LDFLAGS += -g -ggdb
 
-$(bin_jpeg_decoder_bm): $(OBJS) $(lib_pciebm) $(lib_pcie) $(lib_base) $(lib_lpnsim)
+$(bin_jpeg_decoder_bm): $(bm_objs) $(lib_pciebm) $(lib_pcie) $(lib_base) \
+	$(lib_lpnsim)
 
-CLEAN := $(bin_jpeg_decoder_bm) $(OBJS)
-ALL := $(bin_jpeg_decoder_bm)
+# workload driver
+bin_workload_driver := $(d)jpeg_decoder_workload_driver
+workload_driver_objs := $(bin_workload_driver).o $(d)vfio.o
+
+# statically linked binary that can run under any Linux image
+$(workload_driver_objs): CPPFLAGS += -static
+$(bin_workload_driver): LDFLAGS += -static
+
+$(bin_workload_driver): $(workload_driver_objs)
+
+CLEAN := $(bin_jpeg_decoder_bm) $(bin_workload_driver) $(bm_objs) \
+	$(workload_driver_objs)
+ALL := $(bin_jpeg_decoder_bm) $(bin_workload_driver)
+
 include mk/subdir_post.mk
