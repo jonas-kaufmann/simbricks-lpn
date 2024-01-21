@@ -129,7 +129,7 @@ void PcieBM::DmaDo(DMAOp &dma_op) {
       main_time_, &dma_op, dma_op.dma_addr, dma_op.len, dma_pending_);
 #endif
 
-  size_t maxlen = SimbricksBaseIfOutMsgLen(&pcieif_.base);
+  size_t maxlen = SimbricksPcieIfD2HOutMsgLen(&pcieif_);
   if (dma_op.write) {
     volatile struct SimbricksProtoPcieD2HWrite *write = &msg->write;
     if (maxlen < sizeof(*write) + dma_op.len) {
@@ -482,16 +482,17 @@ int PcieBM::RunMain() {
 
   while (!exiting_) {
     while (true) {
-      int res = SimbricksBaseIfOutSync(&pcieif_.base, main_time_);
+      int res = SimbricksPcieIfD2HOutSync(&pcieif_, main_time_);
       if (res == 0 || res == 1)
         break;
 
-      // TODO add this again
-      // fprintf(stderr, "warn: SimbricksBaseIfOutSync failed with %i (t=%lu)\n",
-      //         res, main_time_);
+      fprintf(stderr,
+              "warn: SimbricksPcieIfD2HOutSync failed with %i (t=%lu)\n", res,
+              main_time_);
       YieldPoll();
     }
 
+    // process everything up to the current timestamp
     bool first = true;
     do {
       if (!first)
@@ -502,16 +503,15 @@ int PcieBM::RunMain() {
       EventTrigger();
 
       if (sync_pci) {
-        next_ts = SimbricksBaseIfOutNextSync(&pcieif_.base);
-        if (next_ts > main_time_ + max_step)
-          next_ts = main_time_ + max_step;
+        next_ts = std::min(SimbricksPcieIfH2DInTimestamp(&pcieif_),
+                           SimbricksPcieIfD2HOutNextSync(&pcieif_));
       } else {
         next_ts = main_time_ + max_step;
       }
 
       std::optional<uint64_t> ev_ts = EventNext();
-      if (ev_ts && *ev_ts < next_ts)
-        next_ts = *ev_ts;
+      if (ev_ts)
+        next_ts = std::min(*ev_ts, next_ts);
     } while (next_ts <= main_time_ && !exiting_);
     main_time_ = next_ts;
 
