@@ -33,6 +33,7 @@
 #include <unistd.h>
 
 #include <cassert>
+#include <cstring>
 #include <ctime>
 #include <iostream>
 #include <vector>
@@ -364,12 +365,10 @@ void PcieBM::PollH2D() {
       break;
 
     case SIMBRICKS_PROTO_MSG_TYPE_SYNC:
-#ifdef STAT_NICBM
-      h2d_poll_sync += 1;
-      if (stat_flag) {
-        s_h2d_poll_sync += 1;
+      h2d_poll_sync_ += 1;
+      if (stat_flag_) {
+        s_h2d_poll_sync_ += 1;
       }
-#endif
       break;
 
     case SIMBRICKS_PROTO_MSG_TYPE_TERMINATE:
@@ -410,25 +409,62 @@ void PcieBM::YieldPoll() {
   /* do nothing */
 }
 
-int PcieBM::ParseArgs(int argc, char *argv[]) {
+bool PcieBM::PcieIfInit() {
+  struct SimbricksBaseIfSHMPool pool;
+  struct SimBricksBaseIfEstablishData ests;
+  struct SimbricksProtoPcieHostIntro h_intro;
+
+  std::memset(&pool, 0, sizeof(pool));
+  std::memset(&ests, 0, sizeof(ests));
+
+  ests.base_if = &pcieif_.base;
+  ests.tx_intro = &dintro_;
+  ests.tx_intro_len = sizeof(dintro_);
+  ests.rx_intro = &h_intro;
+  ests.rx_intro_len = sizeof(h_intro);
+
+  if (SimbricksBaseIfInit(&pcieif_.base, &pcieParams_)) {
+    std::cerr << "PcieIfInit: SimbricksBaseIfInit failed\n";
+    return false;
+  }
+
+  if (SimbricksBaseIfSHMPoolCreate(
+          &pool, shmPath_, SimbricksBaseIfSHMSize(&pcieif_.base.params)) != 0) {
+    std::cerr << "PcieIfInit: SimbricksBaseIfSHMPoolCreate failed\n";
+    return false;
+  }
+
+  if (SimbricksBaseIfListen(&pcieif_.base, &pool) != 0) {
+    std::cerr << "PcieIfInit: SimbricksBaseIfListen failed\n";
+    return false;
+  }
+
+  if (SimBricksBaseIfEstablish(&ests, 1)) {
+    std::cerr << "PciIfInit: SimBricksBaseIfEstablish failed\n";
+    return false;
+  }
+  return true;
+}
+
+bool PcieBM::ParseArgs(int argc, char *argv[]) {
   SimbricksPcieIfDefaultParams(&pcieParams_);
 
-  if (argc < 3 || argc > 7) {
+  if (argc < 3 || argc > 6) {
     fprintf(stderr,
-            "Usage: PcieBM PCI-SOCKET SHM [SYNC-MODE] [START-TICK] "
-            "[SYNC-PERIOD] [PCI-LATENCY]\n");
-    return -1;
+            "Usage: PcieBM PCI-SOCKET SHM [START-TICK] [SYNC-PERIOD] "
+            "[PCI-LATENCY]\n");
+    return false;
   }
+  if (argc >= 4)
+    main_time_ = strtoull(argv[3], nullptr, 0);
   if (argc >= 5)
-    main_time_ = strtoull(argv[4], nullptr, 0);
+    pcieParams_.sync_interval = strtoull(argv[4], nullptr, 0) * 1000ULL;
   if (argc >= 6)
-    pcieParams_.sync_interval = strtoull(argv[5], nullptr, 0) * 1000ULL;
-  if (argc >= 7)
-    pcieParams_.link_latency = strtoull(argv[6], nullptr, 0) * 1000ULL;
+    pcieParams_.link_latency = strtoull(argv[5], nullptr, 0) * 1000ULL;
 
   pcieParams_.sock_path = argv[1];
   shmPath_ = argv[2];
-  return 0;
+  return true;
 }
 
 int PcieBM::RunMain() {
@@ -438,6 +474,9 @@ int PcieBM::RunMain() {
   memset(&dintro_, 0, sizeof(dintro_));
   SetupIntro(dintro_);
 
+  if (!PcieIfInit()) {
+    return EXIT_FAILURE;
+  }
   bool sync_pci = SimbricksBaseIfSyncEnabled(&pcieif_.base);
   fprintf(stderr, "sync_pci=%d\n", sync_pci);
 
@@ -447,8 +486,9 @@ int PcieBM::RunMain() {
       if (res == 0 || res == 1)
         break;
 
-      fprintf(stderr, "warn: SimbricksBaseIfOutSync failed with %i (t=%lu)\n",
-              res, main_time_);
+      // TODO add this again
+      // fprintf(stderr, "warn: SimbricksBaseIfOutSync failed with %i (t=%lu)\n",
+      //         res, main_time_);
       YieldPoll();
     }
 

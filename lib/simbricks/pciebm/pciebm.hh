@@ -42,7 +42,7 @@ struct DMAOp {
   bool write;
   uint64_t dma_addr;
   size_t len;
-  void *data;
+  uint8_t *data;
 };
 
 struct TimedEvent {
@@ -171,11 +171,11 @@ class PcieBM {
   void DmaTrigger();
 
   void YieldPoll();
-  int PcieIfInit();
+  bool PcieIfInit();
 
  public:
   /** Parse command line arguments. */
-  int ParseArgs(int argc, char *argv[]);
+  bool ParseArgs(int argc, char *argv[]);
 
   /** Run the simulation */
   int RunMain();
