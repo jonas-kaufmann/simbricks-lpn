@@ -24,8 +24,7 @@ include mk/subdir_pre.mk
 
 lib_lpnsim := $(d)liblpnsim.a
 
-OBJS := $(addprefix $(d),lpn_sim.o)
-OBJS += $(addprefix $(d),place_transition.o)
+OBJS := $(addprefix $(d),lpn_sim.o place_transition.o)
 
 $(lib_lpnsim): $(OBJS)
 
