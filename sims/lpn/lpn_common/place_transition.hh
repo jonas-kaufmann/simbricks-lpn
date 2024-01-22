@@ -1,5 +1,6 @@
 #ifndef __LPN_PLACE_Transition__
 #define __LPN_PLACE_Transition__
+#include <bits/stdint-uintn.h>
 #define N_ELEM 10
 #include <string>
 #include <map>
@@ -10,19 +11,19 @@
 #include <iostream>
 #include <functional>
 
-#define QT_type(T) deque<T>
+#define QT_type(T) std::deque<T>
 #define NEW_QT(T, x) QT_type(T)* x = new QT_type(T)
 #define NEW_TOKEN(T, x) T* x = new T;
 
 namespace lpn {
 
-const int LARGE = 1<<30; 
+const uint64_t LARGE = (1<<64)-1; 
 
 }
 
 class BaseToken {
 public:
-  int ts=0;
+  uint64_t ts=0;
   virtual void print_token() {}
   virtual std::map<std::string, int>* asDictionary(){
     return nullptr;
@@ -48,10 +49,10 @@ public:
     virtual int tokensLen() const {
       return 0;
     }
-    virtual int tsAt(int idx) const {
+    virtual uint64_t tsAt(int idx) const {
       return 0;
     }
-    virtual void setTokenTs(int idx, int ts) {
+    virtual void setTokenTs(int idx, uint64_t ts) {
     }
     virtual std::string getId() const {
       return "";
@@ -102,10 +103,10 @@ class Place : public BasePlace
   int tokensLen() const override {
     return tokens.size();
   }
-  int tsAt(int idx) const override{
+  uint64_t tsAt(int idx) const override{
     return tokens[idx]->ts;
   } 
-  void setTokenTs(int idx, int ts) override{
+  void setTokenTs(int idx, uint64_t ts) override{
     tokens[idx]->ts = ts;
   }
   std::string getId() const override {
@@ -133,7 +134,7 @@ using Transition = struct Transition
   public:
     std::string id;
     // int (*delay_f)();
-    std::function<int()> delay_f;
+    std::function<uint64_t()> delay_f;
 
     create_input_vector_list();
     create_input_w_vector_list();
@@ -143,25 +144,25 @@ using Transition = struct Transition
     
     std::deque<int> consume_tokens;
     
-    int delay_event=-1; //-1 if no event
+    uint64_t delay_event=lpn::LARGE; //-1 if no event
     int disable = 0;
     int pip=-1; 
-    int pip_ts = 0;
+    uint64_t pip_ts = 0;
     int count=0;
-    int time=0;
+    uint64_t time=0;
 };
 
 int check_token_requirement(BasePlace* self, int num);
-int able_to_fire_t(Transition* self, int& enabled_ts);
+int able_to_fire_t(Transition* self, uint64_t& enabled_ts);
 void fire(BasePlace* self, int num);
 void fire_t(Transition* self);
 void accept_t(Transition* self);
-int delay(Transition* self);
+uint64_t delay(Transition* self);
 int trigger(Transition* self);
-int min_time(Transition* self);
-int min_time_g(Transition** all_ts, int size);
-std::vector<Transition*>* min_time_t(Transition** all_ts, int min_t, int size);
-int sync(Transition* self, int time);
+uint64_t min_time(Transition* self);
+uint64_t min_time_g(Transition** all_ts, int size);
+std::vector<Transition*>* min_time_t(Transition** all_ts, uint64_t min_t, int size);
+int sync(Transition* self, uint64_t time);
 int trigger_for_path(Transition* self);
 int sync_for_path(Transition* self);
 void detect_conflicting_Transition_groups(Transition** t_list, int size, std::set<BasePlace*>& p_list, int* conflict_free);

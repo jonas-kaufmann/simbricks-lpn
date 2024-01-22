@@ -40,7 +40,8 @@ bool IsCurImgFinished() {
     if (num_tokens_for_cur_img == 0){
         return false;
     }
-    return pdone.tokensLen() == int(std::ceil(m_width/8.0)*std::ceil(m_height/8.0));
+    std::cerr << "Pdone tokens " << pdone.tokensLen() << "should reach " << num_tokens_for_cur_img << std::endl;
+    return pdone.tokensLen() == num_tokens_for_cur_img;
 }
 
 void Reset() {
@@ -365,6 +366,7 @@ static bool DecodeImage(void)
         for(int i : count_6){
             printf("cnt %d dc_Y %d \n", i, dc_coeff_Y);
         }
+        printf("producing lpn tokens %lu\n", timestamp);
         for(int cnt : count_6){
             NEW_TOKEN(mcu_token, new_token);
             new_token->delay = 3*(cnt) + 6;
@@ -432,6 +434,9 @@ int UpdateLpnState(uint8_t *buf, size_t len, uint64_t ts)
 
             // Image width in pixels
             get_word(m_width, buf, i);
+            
+            num_tokens_for_cur_img = int(std::ceil(m_width/8.0)*std::ceil(m_height/8.0));
+
 
             GetMOutputR();
             GetMOutputG();

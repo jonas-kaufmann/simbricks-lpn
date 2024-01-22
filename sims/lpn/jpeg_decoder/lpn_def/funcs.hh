@@ -4,9 +4,12 @@
 #include <functional>
 #include "places.hh"
 
-std::function<int()> conDelay(int constant){
+namespace lpnjpeg {
+    uint64_t CYCLEPERIOD = 1'000'000 / 150;
+}
+std::function<uint64_t()> conDelay(int constant){
     auto delay = [&, constant]() -> int{
-        return constant;
+        return constant*lpnjpeg::CYCLEPERIOD;
     };
     return delay;
 };
@@ -30,8 +33,8 @@ std::function<int()> takeSomeToken(int constant){
     return num_tokens;
 };
 
-int mcuDelay(){
-    return pvarlatency.tokens[0]->delay;
+uint64_t mcuDelay(){
+    return pvarlatency.tokens[0]->delay*lpnjpeg::CYCLEPERIOD;
 };
 
 std::function<void(BasePlace*)> passEmptyToken() {
