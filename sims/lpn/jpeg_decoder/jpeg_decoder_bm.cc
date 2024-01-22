@@ -149,11 +149,10 @@ void JpegDecoderBm::DmaComplete(pciebm::DMAOp &dma_op) {
         *reinterpret_cast<JpegDecoderDmaWriteOp *>(&dma_op);
     if (dma_write.last_block) {
       std::free(DecodedImgData_);
+      // let host know that decoding completed
+      Registers_.isBusy = false;
     }
     delete &dma_write;
-
-    // let host know that decoding completed
-    Registers_.isBusy = false;
   }
 }
 
