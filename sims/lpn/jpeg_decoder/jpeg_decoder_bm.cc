@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <memory>
 #include <new>
 
 #include <simbricks/pciebm/pciebm.hh>
@@ -18,7 +19,8 @@
 #include "sims/lpn/lpn_common/place_transition.hh"
 
 #define DMA_BLOCK_SIZE 16  // 128 Byte
-#define FREQ_MHZ 150
+#define FREQ_MHZ 150000000
+#define FREQ_MHZ_NORMALIZED 150
 
 static JpegDecoderBm jpeg_decoder{};
 
@@ -34,13 +36,15 @@ static void sigusr2_handler(int dummy) {
   jpeg_decoder.SIGUSR2Handler();
 }
 
-static uint64_t clock_period = 1'000'000'000'000 / FREQ_MHZ;
-static uint64_t PsToCycles(uint64_t ps) {
-  return ps / clock_period;
-}
-static uint64_t CyclesToPs(uint64_t cycles) {
-  return cycles * clock_period;
-}
+// static uint64_t clock_period = 1'000'000'000'000 / FREQ_MHZ;
+// static uint64_t PsToCycles(uint64_t ps) {
+//   return ps*FREQ_MHZ_NORMALIZED / 1'000'000;
+// }
+// static uint64_t CyclesToPs(uint64_t cycles) {
+//   if (cycles == lpn::LARGE) return lpn::LARGE;
+//   // opportunity for overflow
+//   return cycles * 1'000'000 / FREQ_MHZ_NORMALIZED;
+// }
 
 void JpegDecoderBm::SetupIntro(struct SimbricksProtoPcieDevIntro &dev_intro) {
   dev_intro.pci_vendor_id = 0xdead;
@@ -53,6 +57,9 @@ void JpegDecoderBm::SetupIntro(struct SimbricksProtoPcieDevIntro &dev_intro) {
   static_assert(sizeof(JpegDecoderRegs) <= 4096, "Registers don't fit BAR");
   dev_intro.bars[0].len = 4096;
   dev_intro.bars[0].flags = 0;
+
+  //setup LPN initial state
+  lpn_init();
 }
 
 void JpegDecoderBm::RegRead(uint8_t bar, uint64_t addr, void *dest,
@@ -109,21 +116,21 @@ void JpegDecoderBm::RegWrite(uint8_t bar, uint64_t addr, const void *src,
 void JpegDecoderBm::DmaComplete(pciebm::DMAOp &dma_op) {
   // handle response to DMA read request
   if (!dma_op.write) {
+
     // produce tokens for the LPN
     UpdateLpnState(static_cast<uint8_t *>(dma_op.data), dma_op.len,
-                   PsToCycles(TimePs()));
+                   TimePs());
 
-    // only schedule an event if one doesn't exist yet
-    int next_cycle = NextCommitTime(t_list, T_SIZE);
-    uint64_t next_ts = CyclesToPs(next_cycle);
-    // TODO the timestamp of the LPN has to be kept up-to-date
-    std::cerr << "next_ts=" << next_ts << " TimePs=" << TimePs() << std::endl;
+    uint64_t next_ts = NextCommitTime(t_list, T_SIZE);    
+    
+    std::cerr << "next_ts=" << next_ts << " TimePs=" << TimePs() <<std::endl;
     assert(
         next_ts >= TimePs() &&
         "JpegDecoderBm::DmaComplete: Cannot schedule event for past timestamp");
     auto next_scheduled = EventNext();
-    if (next_cycle != lpn::LARGE &&
+    if (next_ts != lpn::LARGE &&
         (!next_scheduled || next_scheduled.value() > next_ts)) {
+      std::cerr << "schedule next at = " << next_ts << std::endl;
       EventSchedule(*new pciebm::TimedEvent{next_ts, 0});
     }
 
@@ -164,36 +171,37 @@ void JpegDecoderBm::ExecuteEvent(pciebm::TimedEvent &evt) {
   // commit all transitions who can commit at evt.time
   // alternatively, commit transitions one by one.
 
-  // TODO change cycles in LPN to uint64_t
-  CommitAtTime(t_list, T_SIZE, PsToCycles(TimePs()));
-  delete &evt;
+  CommitAtTime(t_list, T_SIZE, evt.time);
+  uint64_t next_ts = NextCommitTime(t_list, T_SIZE);
+  std::cerr << "lpn exec: evt time=" << evt.time << " TimePs=" << TimePs() <<" next_ts=" <<next_ts << std::endl;
 
+  delete &evt;
   // only schedule an event if one doesn't exist yet
-  int next_cycle = NextCommitTime(t_list, T_SIZE);
-  uint64_t next_ts = CyclesToPs(next_cycle);
-  // TODO the timestamp of the LPN has to be kept up-to-date
   assert(
       next_ts >= TimePs() &&
       "JpegDecoderBm::ExecuteEvent: Cannot schedule event for past timestamp");
   auto next_scheduled = EventNext();
-  if (next_cycle != lpn::LARGE &&
+  if(next_scheduled)
+    std::cerr << "event next = " << next_scheduled.value() << std::endl;
+  if (next_ts != lpn::LARGE &&
       (!next_scheduled || next_scheduled.value() > next_ts)) {
+    std::cerr << "schedule next at = " << next_ts << std::endl;
     EventSchedule(*new pciebm::TimedEvent{next_ts, 0});
   }
   if (IsCurImgFinished()) {
     // assemble image
-    uint64_t total_bytes = GetSizeOfRGB() * 3;
-    DecodedImgData_ = reinterpret_cast<uint8_t *>(std::malloc(total_bytes));
+    uint64_t total_bytes_for_each_rgb = GetSizeOfRGB();
+    uint64_t total_bytes = total_bytes_for_each_rgb*3;
+    DecodedImgData_ = reinterpret_cast<uint8_t *>(std::malloc(total_bytes_for_each_rgb*3));
 
     uint8_t *r_out = GetMOutputR();
     uint8_t *g_out = GetMOutputG();
     uint8_t *b_out = GetMOutputB();
-    for (uint64_t i = 0; i < total_bytes; ++i) {
+    for (uint64_t i = 0; i < total_bytes_for_each_rgb; ++i) {
       DecodedImgData_[i * 3] = r_out[i];
       DecodedImgData_[i * 3 + 1] = g_out[i];
       DecodedImgData_[i * 3 + 2] = b_out[i];
     }
-
     // split image into multiple DMAs and write back
     JpegDecoderDmaWriteOp *dma_op = nullptr;
     for (uint64_t bytes_written = 0; bytes_written < total_bytes;) {
@@ -205,6 +213,7 @@ void JpegDecoderBm::ExecuteEvent(pciebm::TimedEvent &evt) {
       IssueDma(*dma_op);
       bytes_written += len;
     }
+    std::cerr << "triggered error " << std::endl;
 
     assert(dma_op != nullptr);
     dma_op->last_block = true;
