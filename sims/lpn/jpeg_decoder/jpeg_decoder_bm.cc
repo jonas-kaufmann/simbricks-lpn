@@ -155,7 +155,7 @@ void JpegDecoderBm::DmaComplete(pciebm::DMAOp &dma_op) {
     JpegDecoderDmaWriteOp &dma_write =
         *reinterpret_cast<JpegDecoderDmaWriteOp *>(&dma_op);
     if (dma_write.last_block) {
-      std::free(DecodedImgData_);
+      // std::free(DecodedImgData_);
       // let host know that decoding completed
       Registers_.isBusy = false;
     }
@@ -192,7 +192,8 @@ void JpegDecoderBm::ExecuteEvent(pciebm::TimedEvent &evt) {
     // assemble image
     uint64_t total_bytes_for_each_rgb = GetSizeOfRGB();
     uint64_t total_bytes = total_bytes_for_each_rgb*3;
-    DecodedImgData_ = reinterpret_cast<uint8_t *>(std::malloc(total_bytes_for_each_rgb*3));
+    // DecodedImgData_ = reinterpret_cast<uint8_t *>(std::malloc(total_bytes_for_each_rgb*3));
+   std::unique_ptr<uint8_t[]> DecodedImgData_ = std::make_unique<uint8_t[]>(total_bytes_for_each_rgb*3);
 
     uint8_t *r_out = GetMOutputR();
     uint8_t *g_out = GetMOutputG();
@@ -209,11 +210,10 @@ void JpegDecoderBm::ExecuteEvent(pciebm::TimedEvent &evt) {
           std::min<uint64_t>(total_bytes - bytes_written, DMA_BLOCK_SIZE);
 
       dma_op = new JpegDecoderDmaWriteOp{Registers_.dst + bytes_written, len,
-                                         DecodedImgData_ + bytes_written};
+                                         DecodedImgData_.get() + bytes_written};
       IssueDma(*dma_op);
       bytes_written += len;
     }
-    std::cerr << "triggered error " << std::endl;
 
     assert(dma_op != nullptr);
     dma_op->last_block = true;
