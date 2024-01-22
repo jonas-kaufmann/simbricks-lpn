@@ -401,8 +401,9 @@ void PcieBM::EventTrigger() {
   if (evt.time > main_time_)
     return;
 
-  ExecuteEvent(evt);
   events_.pop();
+  
+  ExecuteEvent(evt);
 }
 
 void PcieBM::YieldPoll() {
@@ -498,7 +499,6 @@ int PcieBM::RunMain() {
       if (!first)
         YieldPoll();
       first = false;
-
       PollH2D();
       EventTrigger();
 
