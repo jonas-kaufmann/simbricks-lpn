@@ -8,7 +8,7 @@
 #include <assert.h>
 #include <vector>
 #include <cmath>
-
+#include "common.h"
 #include "jpeg_dqt.h"
 #include "jpeg_dht.h"
 #include "jpeg_idct.h"
@@ -40,7 +40,7 @@ bool IsCurImgFinished() {
     if (num_tokens_for_cur_img == 0){
         return false;
     }
-    std::cerr << "Pdone tokens " << pdone.tokensLen() << "should reach " << num_tokens_for_cur_img << std::endl;
+    dprintf("Pdone tokens %d should reach %d \n", pdone.tokensLen(), num_tokens_for_cur_img);
     return pdone.tokensLen() == num_tokens_for_cur_img;
 }
 
@@ -66,8 +66,8 @@ static uint8_t m_dqt_table[3];
 #define get_word(var, _buf, _idx)  CHECK_ENOUGH_BUF(_idx+1, len, _buf, 0); var = ((_buf[_idx++] << 8) | (_buf[_idx++]))
 #define get_word_no_assign(_buf, _idx)  CHECK_ENOUGH_BUF(_idx+1, len, _buf, 0); ((_buf[_idx++] << 8) | (_buf[_idx++]))
 
-#define dprintf
-#define dprintf_blk(_name, _arr, _max) for (int __i=0;__i<_max;__i++) { dprintf("%s: %d -> %d\n", _name, __i, _arr[__i]); }
+#define ddprintf
+#define ddprintf_blk(_name, _arr, _max) for (int __i=0;__i<_max;__i++) { ddprintf("%s: %d -> %d\n", _name, __i, _arr[__i]); }
 
 size_t GetSizeOfRGB(){
     return m_height * m_width;
@@ -134,7 +134,7 @@ static void ConvertYUV2RGB(int block_num, int *y, int *cb, int *cr)
             int _y = y_start + (i / 8);
             int offset = (_y * m_width) + _x;
 
-            dprintf("RGB: r=%d g=%d b=%d -> %d\n", r, g, b, offset);
+            ddprintf("RGB: r=%d g=%d b=%d -> %d\n", r, g, b, offset);
            
             m_output_r[offset] = r;
             m_output_g[offset] = g;
@@ -160,7 +160,7 @@ static void ConvertYUV2RGB(int block_num, int *y, int *cb, int *cr)
 
             if (_x < m_width && _y < m_height)
             {
-                dprintf("RGB: r=%d g=%d b=%d -> %d [x=%d,y=%d]\n", r, g, b, offset, _x, _y);
+                ddprintf("RGB: r=%d g=%d b=%d -> %d [x=%d,y=%d]\n", r, g, b, offset, _x, _y);
                 m_output_r[offset] = r;
                 m_output_g[offset] = g;
                 m_output_b[offset] = b;
@@ -202,11 +202,11 @@ static bool DecodeImage(void)
         // [Y0 Y1 Y2 Y3 Cb Cr] x N
         if (m_mode == JPEG_YCBCR_420)
         {
-            printf("start decoding \n");
+            dprintf("start decoding \n");
             // lets do 6 blocks at a time between unroll.
             CheckPointIdx(m_bit_buffer.global_buf_idx + m_bit_buffer.m_rd_offset/8);
-            printf("checkpoint buf value %0x \n", m_bit_buffer.global_buf[m_bit_buffer.global_buf_idx + m_bit_buffer.m_rd_offset/8]);
-            dprintf("update detect marker %d %d %d %d \n", m_bit_buffer.last_detect_marker, m_bit_buffer.global_buf_len, m_bit_buffer.global_buf_idx, m_bit_buffer.m_rd_offset/8);
+            dprintf("checkpoint buf value %0x \n", m_bit_buffer.global_buf[m_bit_buffer.global_buf_idx + m_bit_buffer.m_rd_offset/8]);
+            ddprintf("update detect marker %d %d %d %d \n", m_bit_buffer.last_detect_marker, m_bit_buffer.global_buf_len, m_bit_buffer.global_buf_idx, m_bit_buffer.m_rd_offset/8);
             m_bit_buffer.last_detect_marker = m_bit_buffer.global_buf_len+m_bit_buffer.last_is_padding - (m_bit_buffer.global_buf_idx+m_bit_buffer.m_rd_offset/8);
             m_bit_buffer.global_m_rd_offset = (m_bit_buffer.m_rd_offset)%8;
             if( m_bit_buffer.global_buf_idx + m_bit_buffer.m_rd_offset/8 - 1 < 0){
@@ -216,7 +216,7 @@ static bool DecodeImage(void)
                 m_bit_buffer.global_m_last = m_bit_buffer.global_buf[m_bit_buffer.global_buf_idx + m_bit_buffer.m_rd_offset/8-1];
                 if (m_bit_buffer.global_m_last == 0xFF)
                     m_bit_buffer.global_m_last = 0;
-                dprintf("m_last checked %0x \n",  m_bit_buffer.global_m_last);
+                ddprintf("m_last checked %0x \n",  m_bit_buffer.global_m_last);
             }
             
             CH_dc_coeff_Y = dc_coeff_Y;
@@ -227,7 +227,7 @@ static bool DecodeImage(void)
             if (count == -1) return false;
             count_6[0]= count;
             m_dqt.process_samples(m_dqt_table[0], sample_out, block_out, count);
-            dprintf_blk("DCT-IN", block_out, 64);
+            ddprintf_blk("DCT-IN", block_out, 64);
             m_idct.process(block_out, &y_dct_out[0]);
 
             // Y1
@@ -235,7 +235,7 @@ static bool DecodeImage(void)
             if (count == -1) return false;
             count_6[1]= count;
             m_dqt.process_samples(m_dqt_table[0], sample_out, block_out, count);
-            dprintf_blk("DCT-IN", block_out, 64);
+            ddprintf_blk("DCT-IN", block_out, 64);
             m_idct.process(block_out, &y_dct_out[64]);
 
             // Y2
@@ -243,7 +243,7 @@ static bool DecodeImage(void)
             if (count == -1) return false;
             count_6[2]= count;
             m_dqt.process_samples(m_dqt_table[0], sample_out, block_out, count);
-            dprintf_blk("DCT-IN", block_out, 64);
+            ddprintf_blk("DCT-IN", block_out, 64);
             m_idct.process(block_out, &y_dct_out[128]);
 
             // Y3
@@ -251,7 +251,7 @@ static bool DecodeImage(void)
             if (count == -1) return false;
             count_6[3]= count;            
             m_dqt.process_samples(m_dqt_table[0], sample_out, block_out, count);
-            dprintf_blk("DCT-IN", block_out, 64);
+            ddprintf_blk("DCT-IN", block_out, 64);
             m_idct.process(block_out, &y_dct_out[192]);
 
             // Cb
@@ -259,7 +259,7 @@ static bool DecodeImage(void)
             if (count == -1) return false;
             count_6[4]= count;
             m_dqt.process_samples(m_dqt_table[1], sample_out, block_out, count);
-            dprintf_blk("DCT-IN", block_out, 64);
+            ddprintf_blk("DCT-IN", block_out, 64);
             m_idct.process(block_out, &cb_dct_out[0]);
 
             // Cr
@@ -267,7 +267,7 @@ static bool DecodeImage(void)
             if (count == -1) return false;
             count_6[5]= count;
             m_dqt.process_samples(m_dqt_table[2], sample_out, block_out, count);
-            dprintf_blk("DCT-IN", block_out, 64);
+            ddprintf_blk("DCT-IN", block_out, 64);
             m_idct.process(block_out, &cr_dct_out[0]);
 
             // Expand Cb/Cr samples to match Y0-3
@@ -333,19 +333,19 @@ static bool DecodeImage(void)
         //     // Y
         //     count = m_mcu_dec.decode(DHT_TABLE_Y_DC_IDX, dc_coeff_Y, sample_out);
         //     m_dqt.process_samples(m_dqt_table[0], sample_out, block_out, count);
-        //     dprintf_blk("DCT-IN", block_out, 64);
+        //     ddprintf_blk("DCT-IN", block_out, 64);
         //     m_idct.process(block_out, &y_dct_out[0]);
 
         //     // Cb
         //     count = m_mcu_dec.decode(DHT_TABLE_CX_DC_IDX, dc_coeff_Cb, sample_out);
         //     m_dqt.process_samples(m_dqt_table[1], sample_out, block_out, count);
-        //     dprintf_blk("DCT-IN", block_out, 64);
+        //     ddprintf_blk("DCT-IN", block_out, 64);
         //     m_idct.process(block_out, &cb_dct_out[0]);
 
         //     // Cr
         //     count = m_mcu_dec.decode(DHT_TABLE_CX_DC_IDX, dc_coeff_Cr, sample_out);
         //     m_dqt.process_samples(m_dqt_table[2], sample_out, block_out, count);
-        //     dprintf_blk("DCT-IN", block_out, 64);
+        //     ddprintf_blk("DCT-IN", block_out, 64);
         //     m_idct.process(block_out, &cr_dct_out[0]);
 
         //     ConvertYUV2RGB(block_num++, y_dct_out, cb_dct_out, cr_dct_out);
@@ -356,17 +356,17 @@ static bool DecodeImage(void)
         //     // Y
         //     count = m_mcu_dec.decode(DHT_TABLE_Y_DC_IDX, dc_coeff_Y, sample_out);
         //     m_dqt.process_samples(m_dqt_table[0], sample_out, block_out, count);
-        //     dprintf_blk("DCT-IN", block_out, 64);
+        //     ddprintf_blk("DCT-IN", block_out, 64);
         //     m_idct.process(block_out, &y_dct_out[0]);
 
         //     ConvertYUV2RGB(block_num++, y_dct_out, cb_dct_out, cr_dct_out);
         // }
-        printf("finished 6 blocks \n");
+        dprintf("finished 6 blocks \n");
         finished += 6;
         for(int i : count_6){
-            printf("cnt %d dc_Y %d \n", i, dc_coeff_Y);
+            dprintf("cnt %d dc_Y %d \n", i, dc_coeff_Y);
         }
-        printf("producing lpn tokens %lu\n", timestamp);
+        dprintf("producing lpn tokens %lu\n", timestamp);
         for(int cnt : count_6){
             NEW_TOKEN(mcu_token, new_token);
             new_token->delay = 3*(cnt) + 6;
@@ -394,7 +394,7 @@ int UpdateLpnState(uint8_t *buf, size_t len, uint64_t ts)
     timestamp = ts;
     buf = AugmentBufWithLast(buf, len);
 
-    dprintf("update lpn state with bytes of length %d\n", len);
+    ddprintf("update lpn state with bytes of length %d\n", len);
     for (int i=0;i<len;)
     {
         // i always points to next unaccessed slots
@@ -402,21 +402,21 @@ int UpdateLpnState(uint8_t *buf, size_t len, uint64_t ts)
             CheckPointIdx(i);
             CHECK_ENOUGH_BUF(i, len, buf, 0);
             b = buf[i++];
-            dprintf("b 0x%0x, last_b 0x%0x \n", b, last_b);
+            ddprintf("b 0x%0x, last_b 0x%0x \n", b, last_b);
         }
         
         //-----------------------------------------------------------------------------
         // SOI: Start of image
         //-----------------------------------------------------------------------------
         if (last_b == 0xFF && b == 0xd8);
-            //printf("Section: SOI\n");
+            //dprintf("Section: SOI\n");
         //-----------------------------------------------------------------------------
         // SOF0: Indicates that this is a baseline DCT-based JPEG
         //-----------------------------------------------------------------------------
         else if ((last_b == 0xFF && b == 0xc0))
         {
             // CheckPointIdx(i);
-            printf("Section: SOF0\n");
+            dprintf("Section: SOF0\n");
             int seg_start = i;
             
             // Length of the segment
@@ -447,7 +447,7 @@ int UpdateLpnState(uint8_t *buf, size_t len, uint64_t ts)
             get_byte(num_comps, buf, i);
             assert(num_comps <= 3);
 
-            printf(" x=%d, y=%d, components=%d\n", m_width, m_height, num_comps);
+            dprintf(" x=%d, y=%d, components=%d\n", m_width, m_height, num_comps);
             uint8_t comp_id[3];
             uint8_t comp_sample_factor[3];
             uint8_t horiz_factor[3];
@@ -472,7 +472,7 @@ int UpdateLpnState(uint8_t *buf, size_t len, uint64_t ts)
             // Single component (Y)
             if (num_comps == 1)
             {
-                printf(" Mode: Monochrome\n");
+                dprintf(" Mode: Monochrome\n");
                 m_mode = JPEG_MONOCHROME;
             }
             // Colour image (YCbCr)
@@ -486,14 +486,14 @@ int UpdateLpnState(uint8_t *buf, size_t len, uint64_t ts)
                         horiz_factor[2] == 1 && vert_factor[2] == 1)
                     {
                         m_mode = JPEG_YCBCR_444;
-                        printf(" Mode: YCbCr 4:4:4\n");
+                        dprintf(" Mode: YCbCr 4:4:4\n");
                     }
                     else if (horiz_factor[0] == 2 && vert_factor[0] == 2 &&
                              horiz_factor[1] == 1 && vert_factor[1] == 1 &&
                              horiz_factor[2] == 1 && vert_factor[2] == 1)
                     {
                         m_mode = JPEG_YCBCR_420;
-                        printf(" Mode: YCbCr 4:2:0\n");
+                        dprintf(" Mode: YCbCr 4:2:0\n");
                     }
                 }
             }
@@ -507,7 +507,7 @@ int UpdateLpnState(uint8_t *buf, size_t len, uint64_t ts)
         else if (last_b == 0xFF && b == 0xdb)
         {
             //CheckPointIdx(i);
-            printf("Section: DQT Table\n");
+            dprintf("Section: DQT Table\n");
             int seg_start = i;
             uint16_t seg_len;
             get_word(seg_len, buf, i);
@@ -524,7 +524,7 @@ int UpdateLpnState(uint8_t *buf, size_t len, uint64_t ts)
             int seg_start = i;
             uint16_t seg_len; 
             get_word(seg_len, buf, i);
-            printf("Section: DHT Table\n");
+            dprintf("Section: DHT Table\n");
             CHECK_ENOUGH_BUF(seg_start+seg_len-1, len, buf, 0);
             m_dht.process(&buf[i], seg_len);
             i = seg_start + seg_len;
@@ -534,7 +534,7 @@ int UpdateLpnState(uint8_t *buf, size_t len, uint64_t ts)
         //-----------------------------------------------------------------------------
         else if (last_b == 0xFF && b == 0xd9)
         {
-            printf("Section: EOI\n");
+            dprintf("Section: EOI\n");
             break;
         }
         //-----------------------------------------------------------------------------
@@ -542,13 +542,13 @@ int UpdateLpnState(uint8_t *buf, size_t len, uint64_t ts)
         //-----------------------------------------------------------------------------
         else if (last_b == 0xFF && b == 0xda)
         {
-            printf("Section: SOS\n");
+            dprintf("Section: SOS\n");
             //CheckPointIdx(i);
             int seg_start = i;
 
             if (m_mode == JPEG_UNSUPPORTED)
             {
-                printf("ERROR: Unsupported JPEG mode\n");
+                dprintf("ERROR: Unsupported JPEG mode\n");
                 break;
             }
 
@@ -570,7 +570,7 @@ int UpdateLpnState(uint8_t *buf, size_t len, uint64_t ts)
                 uint8_t comp_table;
                 get_byte(comp_table, buf,i);
 
-                printf(" %d: ID=%x Table=%x\n", x, comp_id, comp_table);
+                dprintf(" %d: ID=%x Table=%x\n", x, comp_id, comp_table);
             }
 
             // Skip bytes
@@ -604,7 +604,7 @@ int UpdateLpnState(uint8_t *buf, size_t len, uint64_t ts)
                 {
                     i--;
                     // writeout_img();
-                    printf("marker detected\n");
+                    dprintf("marker detected\n");
                     mcu_start = 0;
                     break;
                 }
@@ -614,23 +614,23 @@ int UpdateLpnState(uint8_t *buf, size_t len, uint64_t ts)
             }else{
                 m_bit_buffer.copy_out(buf);
             }
-            dprintf("decode img\n");
+            ddprintf("decode img\n");
             decode_done = DecodeImage();
         }
          else if (last_b == 0xFF && b == 0xc2)
         {
-            printf("Section: SOF2\n");
+            dprintf("Section: SOF2\n");
             int seg_start = i;
             uint16_t seg_len;
             get_word(seg_len, buf, i);
             i = seg_start + seg_len;
 
-            printf("ERROR: Progressive JPEG not supported\n");
+            dprintf("ERROR: Progressive JPEG not supported\n");
             break; // ERROR: Not supported
         }
         else if (last_b == 0xFF && b == 0xdd)
         {
-            printf("Section: DRI\n");
+            dprintf("Section: DRI\n");
             int seg_start = i;
             uint16_t seg_len;
             get_word(seg_len, buf, i);
@@ -638,7 +638,7 @@ int UpdateLpnState(uint8_t *buf, size_t len, uint64_t ts)
         }
         else if (last_b == 0xFF && b >= 0xd0 && b <= 0xd7)
         {
-            printf("Section: RST%d\n", b - 0xd0);
+            dprintf("Section: RST%d\n", b - 0xd0);
             int seg_start = i;
             uint16_t seg_len;
             get_word(seg_len, buf, i);
@@ -646,7 +646,7 @@ int UpdateLpnState(uint8_t *buf, size_t len, uint64_t ts)
         }
         else if (last_b == 0xFF && b >= 0xe0 && b <= 0xef)
         {
-            printf("Section: APP%d\n", b - 0xe0);
+            dprintf("Section: APP%d\n", b - 0xe0);
             int seg_start = i;
             uint16_t seg_len;
             get_word(seg_len, buf, i);
@@ -655,7 +655,7 @@ int UpdateLpnState(uint8_t *buf, size_t len, uint64_t ts)
         }
         else if (last_b == 0xFF && b == 0xfe)
         {
-            printf("Section: COM\n");
+            dprintf("Section: COM\n");
             int seg_start = i;
             uint16_t seg_len;
             get_word(seg_len, buf, i);
@@ -665,14 +665,14 @@ int UpdateLpnState(uint8_t *buf, size_t len, uint64_t ts)
         last_b = b;
     }
     // int sum = 0;
-    // // printf("done with mcu_cnt size %d \n", mcu_cnt.size());
+    // // dprintf("done with mcu_cnt size %d \n", mcu_cnt.size());
     // for (size_t i = 0; i < mcu_cnt.size(); ++i) {
     //     sum += 3*(mcu_cnt[i])+6;
     //     NEW_TOKEN(mcu_token, new_token);
     //     new_token->delay = 3*(mcu_cnt[i]) + 6;
     //     pvarlatency.tokens.push_back(new_token);
     // }
-    // // printf("avrage eob %f , sum eob %d \n", (double)sum/mcu_cnt.size(), sum);
+    // // dprintf("avrage eob %f , sum eob %d \n", (double)sum/mcu_cnt.size(), sum);
     // create_empty_queue(&(ptasks.tokens), mcu_cnt.size());
     // if (m_output_r) delete [] m_output_r;
     // if (m_output_g) delete [] m_output_g;

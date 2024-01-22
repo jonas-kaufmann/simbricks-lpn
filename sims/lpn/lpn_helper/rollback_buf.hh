@@ -23,7 +23,7 @@ uint8_t* AugmentBufWithLast(uint8_t* buf, size_t& len){
     uint8_t* last_buf = GetGlobalBuffer();
     if(last_buf_size == 0) return buf;
     len = len+last_buf_size;
-    printf(" alloc new buf with size %zu \n", len);
+    dprintf(" alloc new buf with size %zu \n", len);
     uint8_t* new_buf = GetNewBuffer();
     for(int i = 0; i < last_buf_size; i++){
         new_buf[i] = last_buf[i];
@@ -31,7 +31,7 @@ uint8_t* AugmentBufWithLast(uint8_t* buf, size_t& len){
     for(int i = 0; i < len; i++){
         new_buf[i+last_buf_size] = buf[i];
     }
-    printf("AugmentBufWithLast last_buf_size %zu, new len %zu \n", last_buf_size, len);
+    dprintf("AugmentBufWithLast last_buf_size %zu, new len %zu \n", last_buf_size, len);
     // reset
     last_buf_size = 0;
     last_idx = 0;
@@ -47,7 +47,7 @@ int CheckNotEnoughBuf(size_t future_idx, size_t len, const uint8_t* buf){
             last_buf[i-last_idx] = buf[i];
         }
         last_buf_size = len - last_idx;
-        printf("Not Enough, len %zu, checked-idx %zu \n", len, last_idx);
+        dprintf("Not Enough, len %zu, checked-idx %zu \n", len, last_idx);
         
         return 1; 
     } 
@@ -57,7 +57,7 @@ int CheckNotEnoughBuf(size_t future_idx, size_t len, const uint8_t* buf){
 
 void CheckPointIdx(int cur) {
     last_idx = cur;
-    printf("checkidx %zu \n", last_idx);
+    dprintf("checkidx %zu \n", last_idx);
 }
 
 // void CheckPointIdx(int cur, size_t len, uint8_t* buf) {
@@ -75,7 +75,7 @@ void RollLog(){
 }
 #define CHECK_ENOUGH_BUF(future, len, buf, ret)\
     if(CheckNotEnoughBuf(future, len, buf)){ \
-        printf(#future "<" #len "\n"); \
+        dprintf(#future "<" #len "\n"); \
         return ret; \
     }
 

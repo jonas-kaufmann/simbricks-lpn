@@ -70,7 +70,6 @@ uint64_t delay(Transition* self){
 }
 
 int trigger(Transition* self){
-  printf("lpn::LARGE init %lu my delay event %lu\n", lpn::LARGE, self->delay_event);
   if(self->delay_event != lpn::LARGE) return 1;
   if(self->disable) return 0;
   uint64_t enabled = 0;
@@ -78,7 +77,6 @@ int trigger(Transition* self){
   
   if(self->delay_event == lpn::LARGE && can_fire){
      uint64_t delay_time = delay(self);
-     printf("lpn check enabled ts %lu \n", enabled);
      uint64_t enable_time = std::max(enabled, self->pip_ts);
      uint64_t mature_time = enable_time + delay_time; 
      if (self->pip != -1) {
@@ -86,7 +84,6 @@ int trigger(Transition* self){
      }else{
         self->pip_ts = mature_time;
      }
-     printf("enabled lpn trans: %s at cycles %lu \n", self->id.c_str(), mature_time);
      self->delay_event = mature_time;
     //  self->count += 1;
   }
@@ -105,7 +102,6 @@ uint64_t min_time_g(Transition** all_ts, int size){
   uint64_t min = lpn::LARGE;
   for(int i=0; i<size; i++){
     uint64_t _t = min_time(all_ts[i]);
-    printf("min_time_g %s enabled %lu \n", all_ts[i]->id.c_str(), _t);
     if (min > _t)
         min = _t;
   }
@@ -116,7 +112,6 @@ std::vector<Transition*>* min_time_t(Transition** all_ts, uint64_t min_t, int si
   std::vector<Transition*>* min_ts = new std::vector<Transition*>;
    for(int i=0; i<size; i++){
     uint64_t _t = min_time(all_ts[i]);
-    // printf("%d ", _t);
     if (min_t == _t){
         min_ts->push_back(all_ts[i]);
     }
@@ -133,7 +128,7 @@ int sync(Transition* self, uint64_t time){
    }
    
    if(time >= self->delay_event){
-     printf("commit lpn trans: %s at cycles %lu \n", self->id.c_str(), time);
+    //  printf("commit lpn trans: %s at cycles %lu \n", self->id.c_str(), time);
     // reordered the two
      accept_t(self);
      fire_t(self);

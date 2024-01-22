@@ -11,6 +11,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <assert.h>
+#include "common.h"
 
 #ifndef DCTSIZE
 #define DCTSIZE 8

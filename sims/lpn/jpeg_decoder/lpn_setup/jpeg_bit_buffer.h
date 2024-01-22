@@ -6,8 +6,8 @@
 #include <stdint.h>
 #include <string.h>
 #include <assert.h>
+#include "common.h"
 #include "../../lpn_helper/rollback_buf.hh"
-#define ddprintf
 
 #ifndef TEST_HOOKS_BITBUFFER
 #define TEST_HOOKS_BITBUFFER(x)
@@ -58,8 +58,8 @@ public:
         m_wr_offset = 0;
         m_last      = global_m_last;
         m_rd_offset = global_m_rd_offset;
-        dprintf("reset m_rd_offset to %d \n", m_rd_offset);
-        dprintf("at reset last_detect %d \n", last_detect_marker);
+        ddprintf("reset m_rd_offset to %d \n", m_rd_offset);
+        ddprintf("at reset last_detect %d \n", last_detect_marker);
         global_m_last = 0;
         global_m_rd_offset = 0;
     }
@@ -78,15 +78,15 @@ public:
         {
             m_wr_offset--;
             marker_detected = 1;
-            dprintf("didn't push byte %0x \n", b);
+            ddprintf("didn't push byte %0x \n", b);
             return false;
         }
         // Push byte into buffer
         else
         {
             // assert();
-            assert(m_wr_offset < m_max_size ? 1 : (dprintf("Assertion failed: %d %d\n", m_wr_offset, m_max_size), 0));
-            dprintf("push byte %0x \n", b);
+            assert(m_wr_offset < m_max_size ? 1 : (ddprintf("Assertion failed: %d %d\n", m_wr_offset, m_max_size), 0));
+            ddprintf("push byte %0x \n", b);
             m_buffer[m_wr_offset++] = b;
         }
 
@@ -104,18 +104,18 @@ public:
     uint32_t read_word(void)
     {
         if (eof()){
-            printf("EOF \n");
+            dprintf("EOF \n");
             return 0;
         }
-        dprintf("m_rd_offset %d", m_rd_offset%8);
-        dprintf("read with offset %d\n", m_rd_offset);
+        ddprintf("m_rd_offset %d", m_rd_offset%8);
+        ddprintf("read with offset %d\n", m_rd_offset);
         int byte   = m_rd_offset / 8;
         int bit    = m_rd_offset % 8; // 0 - 7
         uint64_t w = 0;
         for (int x=0;x<5;x++)
         {
             w |= m_buffer[byte+x];
-            dprintf(" == byte %0x global buf %0x gbufidx %d \n ", m_buffer[byte+x], global_buf[byte+x], global_buf_idx);
+            ddprintf(" == byte %0x global buf %0x gbufidx %d \n ", m_buffer[byte+x], global_buf[byte+x], global_buf_idx);
             w <<= 8;
         }
         w <<= bit;
@@ -130,7 +130,7 @@ public:
 
     bool eof(void)
     {
-        // dprintf("check eof %d, %d\n", m_rd_offset, m_wr_offset);
+        // ddprintf("check eof %d, %d\n", m_rd_offset, m_wr_offset);
         // skip eof, return 0; even though it's not enough
         // if(yes) return 1;
         bool ans = 0;

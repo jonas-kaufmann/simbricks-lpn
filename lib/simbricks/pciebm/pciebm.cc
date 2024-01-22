@@ -45,7 +45,7 @@ extern "C" {
 #include <simbricks/base/proto.h>
 }
 
-#define DEBUG_PCIEBM 1
+#define DEBUG_PCIEBM 0
 #define DMA_MAX_PENDING 64
 
 namespace pciebm {
@@ -88,7 +88,7 @@ volatile union SimbricksProtoPcieD2H *PcieBM::D2HAlloc() {
 void PcieBM::IssueDma(DMAOp &dma_op) {
   if (dma_pending_ < DMA_MAX_PENDING) {
 // can directly issue
-#ifdef DEBUG_PCIEBM
+#if DEBUG_PCIEBM
     printf(
         "main_time = %lu: pciebm: issuing dma op %p addr %lx len %zu pending "
         "%zu\n",
@@ -96,7 +96,7 @@ void PcieBM::IssueDma(DMAOp &dma_op) {
 #endif
     DmaDo(dma_op);
   } else {
-#ifdef DEBUG_PCIEBM
+#if DEBUG_PCIEBM
     printf(
         "main_time = %lu: pciebm: enqueuing dma op %p addr %lx len %zu pending "
         "%zu\n",
@@ -121,7 +121,7 @@ void PcieBM::DmaDo(DMAOp &dma_op) {
 
   volatile union SimbricksProtoPcieD2H *msg = D2HAlloc();
   dma_pending_++;
-#ifdef DEBUG_PCIEBM
+#if DEBUG_PCIEBM
   printf(
       "main_time = %lu: pciebm: executing dma dma_op %p addr %lx len %zu "
       "pending "
@@ -146,7 +146,7 @@ void PcieBM::DmaDo(DMAOp &dma_op) {
     // NOLINTNEXTLINE(google-readability-casting)
     memcpy((void *)write->data, dma_op.data, dma_op.len);
 
-#ifdef DEBUG_PCIEBM
+#if DEBUG_PCIEBM
     uint8_t *tmp = static_cast<uint8_t *>(dma_op.data);
     printf("main_time = %lu: pciebm: dma write data: \n", main_time_);
     for (size_t i = 0; i < dma_op.len; i++) {
@@ -179,7 +179,7 @@ void PcieBM::MsiIssue(uint8_t vec) {
     return;
 
   volatile union SimbricksProtoPcieD2H *msg = D2HAlloc();
-#ifdef DEBUG_PCIEBM
+#if DEBUG_PCIEBM
   printf("main_time = %lu: pciebm: issue MSI interrupt vec %u\n", main_time_,
          vec);
 #endif
@@ -196,7 +196,7 @@ void PcieBM::MsiXIssue(uint8_t vec) {
     return;
 
   volatile union SimbricksProtoPcieD2H *msg = D2HAlloc();
-#ifdef DEBUG_PCIEBM
+#if DEBUG_PCIEBM
   printf("main_time = %lu: pciebm: issue MSI-X interrupt vec %u\n", main_time_,
          vec);
 #endif
@@ -213,7 +213,7 @@ void PcieBM::IntXIssue(bool level) {
     return;
 
   volatile union SimbricksProtoPcieD2H *msg = D2HAlloc();
-#ifdef DEBUG_PCIEBM
+#if DEBUG_PCIEBM
   printf("main_time = %lu: pciebm: set intx interrupt %u\n", main_time_, level);
 #endif
   volatile struct SimbricksProtoPcieD2HInterrupt *intr = &msg->interrupt;
@@ -240,7 +240,7 @@ void PcieBM::H2DRead(volatile struct SimbricksProtoPcieH2DRead *read) {
   RegRead(read->bar, read->offset, (void *)readcomp->data, read->len);
   readcomp->req_id = read->req_id;
 
-#ifdef DEBUG_PCIEBM
+#if DEBUG_PCIEBM
   uint64_t dbg_val = 0;
   // NOLINTNEXTLINE(google-readability-casting)
   memcpy(&dbg_val, (const void *)readcomp->data,
@@ -258,7 +258,7 @@ void PcieBM::H2DWrite(volatile struct SimbricksProtoPcieH2DWrite *write,
   volatile union SimbricksProtoPcieD2H *msg;
   volatile struct SimbricksProtoPcieD2HWritecomp *writecomp;
 
-#ifdef DEBUG_PCIEBM
+#if DEBUG_PCIEBM
   uint64_t dbg_val = 0;
   // NOLINTNEXTLINE(google-readability-casting)
   memcpy(&dbg_val, (const void *)write->data, write->len <= 8 ? write->len : 8);
@@ -285,7 +285,7 @@ void PcieBM::H2DReadcomp(
   // NOLINTNEXTLINE(performance-no-int-to-ptr)
   DMAOp *dma_op = reinterpret_cast<DMAOp *>(readcomp->req_id);
 
-#ifdef DEBUG_PCIEBM
+#if DEBUG_PCIEBM
   printf("main_time = %lu: pciebm: completed dma read op %p addr %lx len %zu\n",
          main_time_, dma_op, dma_op->dma_addr, dma_op->len);
 #endif
@@ -303,7 +303,7 @@ void PcieBM::H2DWritecomp(
   // NOLINTNEXTLINE(performance-no-int-to-ptr)
   DMAOp *dma_op = reinterpret_cast<DMAOp *>(writecomp->req_id);
 
-#ifdef DEBUG_PCIEBM
+#if DEBUG_PCIEBM
   printf(
       "main_time = %lu: pciebm: completed dma write op %p addr %lx len %zu\n",
       main_time_, dma_op, dma_op->dma_addr, dma_op->len);

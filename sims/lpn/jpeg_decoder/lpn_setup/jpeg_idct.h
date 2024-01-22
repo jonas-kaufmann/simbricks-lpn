@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <assert.h>
+#include "common.h"
 
 //-----------------------------------------------------------------------------
 // jpeg_idct:

@@ -9,8 +9,8 @@
 
 #include "jpeg_bit_buffer.h"
 #include "jpeg_dht.h"
+#include "common.h"
 #include "../../lpn_helper/rollback_buf.hh"
-#define dprintf
 
 //-----------------------------------------------------------------------------
 // jpeg_mcu_block:
@@ -48,7 +48,7 @@ public:
                 CHECK_ENOUGH_BUF(m_bit_buffer->global_buf_idx + m_bit_buffer->m_rd_offset/8+3, m_bit_buffer->global_buf_len, m_bit_buffer->global_buf, -1);
             }
             uint32_t input_word = m_bit_buffer->read_word();
-            dprintf("read word %04x \n", input_word);
+            ddprintf("read word %04x \n", input_word);
             // Start with upper 16-bits
             uint16_t input_data = input_word >> 16;
 
@@ -90,7 +90,7 @@ public:
                 // End of block
                 if (code == 0)
                 {
-                    printf("SMPL: EOB\n");
+                    dprintf("SMPL: EOB\n");
                     coeff = 64;
                     break;
                 }
@@ -99,7 +99,7 @@ public:
                 if (code == 0xF0)
                 {
                     // When the ZRL code comes, it is regarded as 15 zero data
-                    printf("SMPL: ZRL\n");
+                    dprintf("SMPL: ZRL\n");
                     coeff += 15; // +1 in the loop
                     continue;
                 }

@@ -123,14 +123,20 @@ void JpegDecoderBm::DmaComplete(pciebm::DMAOp &dma_op) {
 
     uint64_t next_ts = NextCommitTime(t_list, T_SIZE);    
     
-    std::cerr << "next_ts=" << next_ts << " TimePs=" << TimePs() <<std::endl;
+    #if JPEGD_DEBUG
+      std::cerr << "next_ts=" << next_ts << " TimePs=" << TimePs() <<std::endl;
+    #endif 
     assert(
         next_ts >= TimePs() &&
         "JpegDecoderBm::DmaComplete: Cannot schedule event for past timestamp");
     auto next_scheduled = EventNext();
     if (next_ts != lpn::LARGE &&
         (!next_scheduled || next_scheduled.value() > next_ts)) {
-      std::cerr << "schedule next at = " << next_ts << std::endl;
+        
+      #if JPEGD_DEBUG
+        std::cerr << "schedule next at = " << next_ts << std::endl;
+      #endif
+      
       EventSchedule(*new pciebm::TimedEvent{next_ts, 0});
     }
 
@@ -173,19 +179,28 @@ void JpegDecoderBm::ExecuteEvent(pciebm::TimedEvent &evt) {
 
   CommitAtTime(t_list, T_SIZE, evt.time);
   uint64_t next_ts = NextCommitTime(t_list, T_SIZE);
-  std::cerr << "lpn exec: evt time=" << evt.time << " TimePs=" << TimePs() <<" next_ts=" <<next_ts << std::endl;
-
+  #if JPEGD_DEBUG
+    std::cerr << "lpn exec: evt time=" << evt.time << " TimePs=" << TimePs() <<" next_ts=" <<next_ts << std::endl;
+  #endif 
   delete &evt;
   // only schedule an event if one doesn't exist yet
   assert(
       next_ts >= TimePs() &&
       "JpegDecoderBm::ExecuteEvent: Cannot schedule event for past timestamp");
   auto next_scheduled = EventNext();
-  if(next_scheduled)
-    std::cerr << "event next = " << next_scheduled.value() << std::endl;
+  
+  #if JPEGD_DEBUG
+    if(next_scheduled)
+      std::cerr << "event scheduled next at = " << next_scheduled.value() << std::endl;
+  #endif
+
   if (next_ts != lpn::LARGE &&
       (!next_scheduled || next_scheduled.value() > next_ts)) {
-    std::cerr << "schedule next at = " << next_ts << std::endl;
+    
+    #if JPEGD_DEBUG
+      std::cerr << "schedule next at = " << next_ts << std::endl;
+    #endif
+
     EventSchedule(*new pciebm::TimedEvent{next_ts, 0});
   }
   if (IsCurImgFinished()) {

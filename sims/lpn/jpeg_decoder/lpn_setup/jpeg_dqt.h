@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <assert.h>
+#include "common.h"
 
 // Zigzag table
 static const int m_zigzag_table[]=
@@ -21,7 +22,7 @@ static const int m_zigzag_table[]=
     0
 };
 
-#define dprintf
+#define ddprintf
 
 //-----------------------------------------------------------------------------
 // jpeg_dqt:
@@ -48,13 +49,13 @@ public:
 
         // Table number
         uint8_t  table_num = (*buf++) & 0x3;
-        dprintf(" DQT: Table %d\n", table_num);
+        ddprintf(" DQT: Table %d\n", table_num);
 
         for (int x=0;x<64;x++)
         {
             // 8-bit
             uint8_t qv = *buf++;
-            dprintf(" %d: %x\n", x, qv);
+            ddprintf(" %d: %x\n", x, qv);
             m_table_dqt[table_num][x] = qv;
         }
 
@@ -81,7 +82,7 @@ public:
         {
             int16_t smpl      = (int16_t)(sample_in[i] & 0xFFFF);
             int   block_idx   = (sample_in[i] >> 16);
-            dprintf("DEQ: %d: %d * %d -> %d @ %d\n", block_idx, smpl, lookup(quant_table,block_idx), smpl * lookup(quant_table,block_idx), m_zigzag_table[block_idx]);
+            ddprintf("DEQ: %d: %d * %d -> %d @ %d\n", block_idx, smpl, lookup(quant_table,block_idx), smpl * lookup(quant_table,block_idx), m_zigzag_table[block_idx]);
             block_out[m_zigzag_table[block_idx]] = smpl * lookup(quant_table,block_idx);
         }
     }
