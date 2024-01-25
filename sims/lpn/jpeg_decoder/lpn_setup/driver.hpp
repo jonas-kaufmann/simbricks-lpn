@@ -1,5 +1,6 @@
 #ifndef __JPEG_DECODER_DRIVER__
 #define __JPEG_DECODER_DRIVER__
+#include <bits/stdint-uintn.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -34,6 +35,8 @@ static std::vector<int> mcu_cnt;
 
 static uint16_t m_width;
 static uint16_t m_height;
+static uint16_t rgb_cur_len = 0;
+static uint16_t rgb_consumed_len = 0;
 static int num_tokens_for_cur_img = 0;
 
 bool IsCurImgFinished() {
@@ -72,6 +75,20 @@ static uint8_t m_dqt_table[3];
 size_t GetSizeOfRGB(){
     return m_height * m_width;
 }
+
+size_t GetCurRGBOffset(){
+    return rgb_cur_len;
+    // return m_height * m_width;
+}
+
+size_t GetConsumedRGBOffset(){
+    return rgb_consumed_len;
+}
+
+void UpdateConsumedRGBOffset(uint16_t len){
+    rgb_consumed_len = len;
+}
+
 uint8_t *GetMOutputR(){
     static uint8_t *m_output = nullptr;
     if(!m_output){
@@ -133,7 +150,7 @@ static void ConvertYUV2RGB(int block_num, int *y, int *cb, int *cr)
             int _x = x_start + (i % 8);
             int _y = y_start + (i / 8);
             int offset = (_y * m_width) + _x;
-
+            rgb_cur_len = offset+1;
             ddprintf("RGB: r=%d g=%d b=%d -> %d\n", r, g, b, offset);
            
             m_output_r[offset] = r;
@@ -157,6 +174,7 @@ static void ConvertYUV2RGB(int block_num, int *y, int *cb, int *cr)
             int _x = x_start + (i % 8);
             int _y = y_start + (i / 8);
             int offset = (_y * m_width) + _x;
+            rgb_cur_len = offset+1;
 
             if (_x < m_width && _y < m_height)
             {

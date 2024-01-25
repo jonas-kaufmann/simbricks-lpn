@@ -203,37 +203,75 @@ void JpegDecoderBm::ExecuteEvent(pciebm::TimedEvent &evt) {
 
     EventSchedule(*new pciebm::TimedEvent{next_ts, 0});
   }
-  if (IsCurImgFinished()) {
-    // assemble image
-    uint64_t total_bytes_for_each_rgb = GetSizeOfRGB();
-    uint64_t total_bytes = total_bytes_for_each_rgb*3;
-    // DecodedImgData_ = reinterpret_cast<uint8_t *>(std::malloc(total_bytes_for_each_rgb*3));
-   std::unique_ptr<uint8_t[]> DecodedImgData_ = std::make_unique<uint8_t[]>(total_bytes_for_each_rgb*3);
+  
+  uint64_t rgb_cur_len = GetCurRGBOffset();
+  if(rgb_cur_len>0){
+    uint64_t rgb_consumed_len = GetConsumedRGBOffset();
+    if(rgb_cur_len >rgb_consumed_len){
+      uint64_t bytes_to_write = rgb_cur_len - rgb_consumed_len;
+      std::unique_ptr<uint8_t[]> DecodedImgData_ = std::make_unique<uint8_t[]>(bytes_to_write*3);
+      uint8_t *r_out = GetMOutputR();
+      uint8_t *g_out = GetMOutputG();
+      uint8_t *b_out = GetMOutputB();
+      for (uint64_t i = 0; i < rgb_cur_len-rgb_consumed_len; ++i) {
+        DecodedImgData_[i * 3] = r_out[i+rgb_consumed_len];
+        DecodedImgData_[i * 3 + 1] = g_out[i+rgb_consumed_len];
+        DecodedImgData_[i * 3 + 2] = b_out[i+rgb_consumed_len];
+      }
+      // split image into multiple DMAs and write back
+      JpegDecoderDmaWriteOp *dma_op = nullptr;
+      for (uint64_t bytes_written = rgb_consumed_len; bytes_written < rgb_cur_len;) {
+        uint64_t len =
+            std::min<uint64_t>(rgb_cur_len - bytes_written, DMA_BLOCK_SIZE);
 
-    uint8_t *r_out = GetMOutputR();
-    uint8_t *g_out = GetMOutputG();
-    uint8_t *b_out = GetMOutputB();
-    for (uint64_t i = 0; i < total_bytes_for_each_rgb; ++i) {
-      DecodedImgData_[i * 3] = r_out[i];
-      DecodedImgData_[i * 3 + 1] = g_out[i];
-      DecodedImgData_[i * 3 + 2] = b_out[i];
+        dma_op = new JpegDecoderDmaWriteOp{Registers_.dst + bytes_written, len,
+                                          DecodedImgData_.get() + bytes_written-rgb_consumed_len};
+        IssueDma(*dma_op);
+        bytes_written += len;
+      }
+
+      UpdateConsumedRGBOffset(rgb_cur_len);
+
+      if (IsCurImgFinished()){
+        assert(dma_op != nullptr);
+        dma_op->last_block = true;
+        assert( rgb_cur_len== GetSizeOfRGB());
+        Reset();
+      }
     }
-    // split image into multiple DMAs and write back
-    JpegDecoderDmaWriteOp *dma_op = nullptr;
-    for (uint64_t bytes_written = 0; bytes_written < total_bytes;) {
-      uint64_t len =
-          std::min<uint64_t>(total_bytes - bytes_written, DMA_BLOCK_SIZE);
-
-      dma_op = new JpegDecoderDmaWriteOp{Registers_.dst + bytes_written, len,
-                                         DecodedImgData_.get() + bytes_written};
-      IssueDma(*dma_op);
-      bytes_written += len;
-    }
-
-    assert(dma_op != nullptr);
-    dma_op->last_block = true;
-    Reset();
   }
+
+  // if (IsCurImgFinished()) {
+  //   // assemble image
+  //   uint64_t total_bytes_for_each_rgb = GetSizeOfRGB();
+  //   uint64_t total_bytes = total_bytes_for_each_rgb*3;
+  //   // DecodedImgData_ = reinterpret_cast<uint8_t *>(std::malloc(total_bytes_for_each_rgb*3));
+  //   std::unique_ptr<uint8_t[]> DecodedImgData_ = std::make_unique<uint8_t[]>(total_bytes_for_each_rgb*3);
+
+  //   uint8_t *r_out = GetMOutputR();
+  //   uint8_t *g_out = GetMOutputG();
+  //   uint8_t *b_out = GetMOutputB();
+  //   for (uint64_t i = 0; i < total_bytes_for_each_rgb; ++i) {
+  //     DecodedImgData_[i * 3] = r_out[i];
+  //     DecodedImgData_[i * 3 + 1] = g_out[i];
+  //     DecodedImgData_[i * 3 + 2] = b_out[i];
+  //   }
+  //   // split image into multiple DMAs and write back
+  //   JpegDecoderDmaWriteOp *dma_op = nullptr;
+  //   for (uint64_t bytes_written = 0; bytes_written < total_bytes;) {
+  //     uint64_t len =
+  //         std::min<uint64_t>(total_bytes - bytes_written, DMA_BLOCK_SIZE);
+
+  //     dma_op = new JpegDecoderDmaWriteOp{Registers_.dst + bytes_written, len,
+  //                                        DecodedImgData_.get() + bytes_written};
+  //     IssueDma(*dma_op);
+  //     bytes_written += len;
+  //   }
+
+  //   assert(dma_op != nullptr);
+  //   dma_op->last_block = true;
+  //   Reset();
+  // }
 
   // else: No more event
 }
