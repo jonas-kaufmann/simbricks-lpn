@@ -10,3 +10,6 @@
 [submodule "sims/external/femu"]
 	path = sims/external/femu
 	url = https://github.com/simbricks/femu.git
+[submodule "sims/misc/jpeg_decoder/rtl"]
+	path = sims/misc/jpeg_decoder/rtl
+	url = https://github.com/jonas-kaufmann/core_jpeg_decoder.git
