@@ -12,3 +12,8 @@ struct __attribute__((packed)) JpegDecoderRegs {
   uint32_t src;
   uint32_t dst;
 };
+
+struct __attribute__((packed)) VerilatorRegs {
+  // activates or deactivates tracing
+  bool tracing_active;
+};

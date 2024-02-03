@@ -49,13 +49,12 @@ extern "C" {
 #define DEBUG 0
 
 static VerilatedContext vcontext{};
-static Vjpeg_decoder_dma top{"jpeg_decoder_dma"};
+static Vjpeg_decoder top{};
 static VerilatedVcdC trace{};
 
 static JpegDecoderMemReader jpeg_decoder_mem_reader{top};
 static JpegDecoderMemWriter jpeg_decoder_mem_writer{top};
 static JpegDecoderMMIOInterface jpeg_decoder_mmio{top, mmio_done};
-static ClockGaterMMIOInterface clock_gater_mmio{top, mmio_done};
 
 static uint64_t clock_period = 1'000'000 / 150ULL;  // 150 MHz
 static int exiting;
@@ -164,8 +163,17 @@ void apply_ctrl_changes() {
 
 bool h2d_read(volatile struct SimbricksProtoPcieH2DRead &read,
               uint64_t cur_ts) {
+#if DEBUG
+  std::cout << "h2d_read ts=" << cur_ts << " bar=" << static_cast<int>(read.bar)
+            << " offset=" << read.offset << " len=" << read.len << std::endl;
+#endif
+
   switch (read.bar) {
     case 0: {
+      jpeg_decoder_mmio.issueRead(read.req_id, read.offset, read.len);
+      break;
+    }
+    case 1: {
       if (read.offset + read.len > sizeof(verilator_regs)) {
         std::cerr
             << "error: read from verilator registers outside bounds offset="
@@ -183,14 +191,6 @@ bool h2d_read(volatile struct SimbricksProtoPcieH2DRead &read,
 
       break;
     }
-    case 1: {
-      jpeg_decoder_mmio.issueRead(read.req_id, read.offset, read.len);
-      break;
-    }
-    case 2: {
-      clock_gater_mmio.issueRead(read.req_id, read.offset, read.len);
-      break;
-    }
     default: {
       std::cerr << "error: read from unexpected bar " << read.bar << "\n";
       return false;
@@ -202,34 +202,35 @@ bool h2d_read(volatile struct SimbricksProtoPcieH2DRead &read,
 bool h2d_write(volatile struct SimbricksProtoPcieH2DWrite &write,
                uint64_t cur_ts, bool posted) {
 #if DEBUG
-  std::cout << "h2d_write bar=" << (int)write.bar << " offset=" << write.offset
-            << " len=" << write.len << std::endl;
+  std::cout << "h2d_write ts=" << cur_ts
+            << " bar=" << static_cast<int>(write.bar)
+            << " offset=" << write.offset << " len=" << write.len << std::endl;
 #endif
 
   uint64_t val = 0;
   memcpy(&val, (void *)write.data, std::min<size_t>(write.len, (sizeof(val))));
 
   switch (write.bar) {
-    case 0:
+    case 0: {
+      jpeg_decoder_mmio.issueWrite(write.req_id, write.offset, write.len, val);
+      break;
+    }
+    case 1: {
       if (write.offset + write.len > sizeof(verilator_regs)) {
         std::cerr
             << "error: write to verilator registers outside bounds offset="
             << write.offset << " len=" << write.len << "\n";
         return false;
       }
-      memcpy(((uint8_t *)&verilator_regs) + write.offset, (void *)write.data,
-             write.len);
+      memcpy((reinterpret_cast<uint8_t *>(&verilator_regs)) + write.offset,
+             (void *)write.data, write.len);
       apply_ctrl_changes();
       break;
-    case 1:
-      jpeg_decoder_mmio.issueWrite(write.req_id, write.offset, write.len, val);
-      break;
-    case 2:
-      clock_gater_mmio.issueWrite(write.req_id, write.offset, write.len, val);
-      break;
-    default:
+    }
+    default: {
       std::cerr << "error: write to unexpected bar " << write.bar << "\n";
       return false;
+    }
   }
 
   if (!posted) {
@@ -348,12 +349,12 @@ int main(int argc, char **argv) {
   vcontext.traceEverOn(true);
 
   // reset chip
-  top.pl_resetn0 = 0;  // this signal is active low
-  top.pl_clk0 = 0;
+  top.rst = 1;
+  top.clk = 0;
   top.eval();
-  top.pl_clk0 = 1;
+  top.clk = 1;
   top.eval();
-  top.pl_resetn0 = 1;
+  top.rst = 0;
 
   // main simulation loop
   while (!exiting) {
@@ -375,7 +376,7 @@ int main(int argc, char **argv) {
              ((sync && SimbricksPcieIfH2DInTimestamp(&pcieif) <= cur_ts)));
 
     // falling edge
-    top.pl_clk0 = 0;
+    top.clk = 0;
     top.eval();
     if (tracing_active) {
       trace.dump(cur_ts - tracing_start);
@@ -384,13 +385,12 @@ int main(int argc, char **argv) {
 
     // input changes to model
     jpeg_decoder_mmio.step(vcontext.time());
-    clock_gater_mmio.step(vcontext.time());
 
     jpeg_decoder_mem_reader.step(vcontext.time());
     jpeg_decoder_mem_writer.step(vcontext.time());
 
     // evaluate Verilator model for one tick
-    top.pl_clk0 = 1;
+    top.clk = 1;
     top.eval();
     if (tracing_active) {
       trace.dump(vcontext.time() - tracing_start);
@@ -403,63 +403,84 @@ int main(int argc, char **argv) {
   return 0;
 }
 
-void JpegDecoderMemReader::doRead(JpegDecoderMemReader::AXIOperationT *op) {
+void JpegDecoderMemReader::doRead(JpegDecoderMemReader::AXIOperationT *axi_op) {
+#if DEBUG
+  std::cout << "JpegDecoderMemReader::doRead() ts=" << this->main_time
+            << " addr=" << axi_op->addr << " len=" << axi_op->len
+            << " off=" << axi_op->off << " step_size=" << axi_op->step_size
+            << std::endl;
+#endif
+
   volatile union SimbricksProtoPcieD2H *msg = d2h_alloc(main_time);
   if (!msg)
     throw "dma read alloc failed";
 
   unsigned int max_size = SimbricksPcieIfH2DOutMsgLen(&pcieif) -
                           sizeof(SimbricksProtoPcieH2DReadcomp);
-  if (op->len > max_size) {
-    std::cerr << "error: read data of length " << op->len
+  if (axi_op->len > max_size) {
+    std::cerr << "error: read data of length " << axi_op->len
               << " doesn't fit into a SimBricks message" << std::endl;
     throw;
   }
 
   volatile struct SimbricksProtoPcieD2HRead *read = &msg->read;
-  read->req_id = (uintptr_t)op;
-  read->offset = op->addr;
-  read->len = op->len;
+  read->req_id = (uintptr_t)axi_op;
+  read->offset = axi_op->addr;
+  read->len = axi_op->len;
 
   SimbricksPcieIfD2HOutSend(&pcieif, msg, SIMBRICKS_PROTO_PCIE_D2H_MSG_READ);
 }
 
-void JpegDecoderMemWriter::doWrite(JpegDecoderMemWriter::AXIOperationT *op) {
+void JpegDecoderMemWriter::doWrite(
+    JpegDecoderMemWriter::AXIOperationT *axi_op) {
+#if DEBUG
+  std::cout << "JpegDecoderMemWriter::doWrite() ts=" << this->main_time
+            << " addr=" << axi_op->addr << " len=" << axi_op->len
+            << " off=" << axi_op->off << " step_size=" << axi_op->step_size
+            << std::endl;
+#endif
+
   volatile union SimbricksProtoPcieD2H *msg = d2h_alloc(main_time);
   if (!msg)
     throw "dma read alloc failed";
 
   volatile struct SimbricksProtoPcieD2HWrite *write = &msg->write;
   unsigned int max_size = SimbricksPcieIfH2DOutMsgLen(&pcieif) - sizeof(*write);
-  if (op->len > max_size) {
-    std::cerr << "error: write data of length " << op->len
+  if (axi_op->len > max_size) {
+    std::cerr << "error: write data of length " << axi_op->len
               << " doesn't fit into a SimBricks message" << std::endl;
     throw;
   }
 
-  write->req_id = (uintptr_t)op;
-  write->offset = op->addr;
-  write->len = op->len;
-  memcpy((void *)write->data, op->buf, op->len);
+  write->req_id = (uintptr_t)axi_op;
+  write->offset = axi_op->addr;
+  write->len = axi_op->len;
+  memcpy((void *)write->data, axi_op->buf, axi_op->len);
   SimbricksPcieIfD2HOutSend(&pcieif, msg, SIMBRICKS_PROTO_PCIE_D2H_MSG_WRITE);
 
-  writeDone(op);
+  writeDone(axi_op);
 }
 
-void mmio_done(MMIOOp *op, uint64_t cur_ts) {
-  if (!op->isWrite) {
+void mmio_done(MMIOOp *mmio_op, uint64_t cur_ts) {
+#if DEBUG
+  std::cout << "mmio_done ts=" << cur_ts << " addr=" << mmio_op->addr
+            << " len=" << mmio_op->len << " value=" << mmio_op->value
+            << std::endl;
+#endif
+
+  if (!mmio_op->isWrite) {
     volatile union SimbricksProtoPcieD2H *msg = d2h_alloc(cur_ts);
 
     if (!msg)
       throw "completion alloc failed";
 
-    volatile struct SimbricksProtoPcieD2HReadcomp *rc = &msg->readcomp;
-    memcpy((void *)rc->data, &op->value, op->len);
-    rc->req_id = op->id;
+    volatile struct SimbricksProtoPcieD2HReadcomp *readcomp = &msg->readcomp;
+    memcpy((void *)readcomp->data, &mmio_op->value, mmio_op->len);
+    readcomp->req_id = mmio_op->id;
 
     SimbricksPcieIfD2HOutSend(&pcieif, msg,
                               SIMBRICKS_PROTO_PCIE_D2H_MSG_READCOMP);
   }
 
-  delete op;
+  delete mmio_op;
 }

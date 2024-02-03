@@ -162,8 +162,8 @@ class AXIReader {
 
  protected:
   uint64_t main_time;
-  AXIChannelReadAddr &addrP;
-  AXIChannelReadData &dataP;
+  AXIChannelReadAddr addrP;
+  AXIChannelReadData dataP;
 
   std::deque<AXIOperationT *> pending;
   AXIOperationT *curOp;
@@ -172,7 +172,6 @@ class AXIReader {
   virtual void doRead(AXIOperationT *op) = 0;
 
  public:
-  AXIReader(AXIChannelReadAddr &addrP_, AXIChannelReadData &dataP_);
   void readDone(AXIOperationT *op);
   void step(uint64_t ts);
 };
@@ -184,9 +183,9 @@ class AXIWriter {
  protected:
   uint64_t main_time;
   uint64_t suspend_until;
-  AXIChannelWriteAddr &addrP;
-  AXIChannelWriteData &dataP;
-  AXIChannelWriteResp &respP;
+  AXIChannelWriteAddr addrP;
+  AXIChannelWriteData dataP;
+  AXIChannelWriteResp respP;
 
   std::deque<AXIOperationT *> pending;
   std::deque<AXIOperationT *> completed;
@@ -196,8 +195,6 @@ class AXIWriter {
   virtual void doWrite(AXIOperationT *op) = 0;
 
  public:
-  AXIWriter(AXIChannelWriteAddr &addrP_, AXIChannelWriteData &dataP_,
-            AXIChannelWriteResp &respP_);
   void writeDone(AXIOperationT *op);
   void step(uint64_t ts);
 };
@@ -215,7 +212,7 @@ struct MMIOPorts {
   size_t dataBits;
 
   void *awaddr;
-  CData &awprot;
+  // CData &awprot;
   CData &awvalid;
   CData &awready;
 
@@ -229,7 +226,7 @@ struct MMIOPorts {
   CData &bready;
 
   void *araddr;
-  CData &arprot;
+  // CData &arprot;
   CData &arvalid;
   CData &arready;
 

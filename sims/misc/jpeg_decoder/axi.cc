@@ -29,29 +29,25 @@
 #include <iostream>
 #include <unordered_map>
 
-AXIReader::AXIReader(AXIChannelReadAddr &addrP_, AXIChannelReadData &dataP_)
-    : addrP(addrP_), dataP(dataP_), curOp(nullptr) {
-}
-
-void AXIReader::step(uint64_t ts) {
-  main_time = ts;
+void AXIReader::step(uint64_t cur_ts) {
+  main_time = cur_ts;
   *addrP.ready = 1;
   if (*addrP.valid) {
-    uint64_t id = 0;
-    memcpy(&id, addrP.id, (addrP.id_bits + 7) / 8);
+    uint64_t axi_id = 0;
+    memcpy(&axi_id, addrP.id, (addrP.id_bits + 7) / 8);
 
     uint64_t addr = 0;
     memcpy(&addr, addrP.addr, (addrP.addr_bits + 7) / 8);
 
     uint64_t size = pow(2, *addrP.size);
     assert(*addrP.burst == 1 && "we currently only support INCR bursts");
-    AXIOperationT *op =
-        new AXIOperationT(addr, size * (*addrP.len + 1), id, size, this);
+    AXIOperationT *axi_op =
+        new AXIOperationT(addr, size * (*addrP.len + 1), axi_id, size, this);
 #if AXI_DEBUG
     std::cout << main_time << " AXI R: new op=" << op << " addr=" << op->addr
               << " len=" << op->len << " id=" << op->id << std::endl;
 #endif
-    doRead(op);
+    doRead(axi_op);
   }
 
   if (!curOp && !pending.empty()) {
@@ -66,7 +62,7 @@ void AXIReader::step(uint64_t ts) {
 
     uint64_t data_bytes = (dataP.data_bits + 7) / 8;
     size_t align = curOp->addr % data_bytes;
-    memcpy((uint8_t *)dataP.data + align, curOp->buf,
+    memcpy(static_cast<uint8_t *>(dataP.data) + align, curOp->buf,
            std::min(data_bytes - align, curOp->step_size));
     memcpy(dataP.id, &curOp->id, (dataP.id_bits + 7) / 8);
     *dataP.valid = 1;
@@ -107,7 +103,7 @@ void AXIReader::step(uint64_t ts) {
   }
 }
 
-void AXIReader::readDone(AXIOperationT *op) {
+void AXIReader::readDone(AXIOperationT *axi_op) {
 #if AXI_DEBUG
   std::cout << main_time << " AXI R: enqueue op=" << op << std::endl;
   std::cout << "    ";
@@ -116,20 +112,17 @@ void AXIReader::readDone(AXIOperationT *op) {
   }
   std::cout << std::endl;
 #endif
-  pending.push_back(op);
+  pending.push_back(axi_op);
 }
 
-AXIWriter::AXIWriter(AXIChannelWriteAddr &addrP_, AXIChannelWriteData &dataP_,
-                     AXIChannelWriteResp &respP_)
-    : addrP(addrP_), dataP(dataP_), respP(respP_), complOp(nullptr) {
-}
+void AXIWriter::step(uint64_t cur_ts) {
+  main_time = cur_ts;
 
-void AXIWriter::step(uint64_t ts) {
-  main_time = ts;
-
-  if (main_time < suspend_until) {
-    return;
-  }
+  // if (main_time < suspend_until) {
+  //   *respP.valid = 0;
+  //   *dataP.ready = 0;
+  //   return;
+  // }
 
   if (complOp && (*respP.ready || complWasReady)) {
 #if AXI_DEBUG
@@ -156,27 +149,28 @@ void AXIWriter::step(uint64_t ts) {
 
   *addrP.ready = 1;
   if (*addrP.valid) {
-    uint64_t id = 0;
-    memcpy(&id, addrP.id, (addrP.id_bits + 7) / 8);
+    uint64_t axi_id = 0;
+    memcpy(&axi_id, addrP.id, (addrP.id_bits + 7) / 8);
 
     uint64_t addr = 0;
     memcpy(&addr, addrP.addr, (addrP.addr_bits + 7) / 8);
 
     uint64_t size = pow(2, *addrP.size);
     assert(*addrP.burst == 1 && "we currently only support INCR bursts");
-    AXIOperationT *op =
-        new AXIOperationT(addr, size * (*addrP.len + 1), id, size, this);
+    AXIOperationT *axi_op =
+        new AXIOperationT(addr, size * (*addrP.len + 1), axi_id, size, this);
 #if AXI_DEBUG
     std::cout << main_time << " AXI W: new op=" << op << " addr=" << op->addr
               << " len=" << op->len << " id=" << op->id << std::endl;
 #endif
-    if (std::find_if(pending.begin(), pending.end(), [id](AXIOperationT *op) {
-          return op->id == id;
-        }) != pending.end()) {
-      std::cerr << "AXI W id " << id << " is already pending" << std::endl;
+    if (std::find_if(pending.begin(), pending.end(),
+                     [axi_id](AXIOperationT *axi_op) {
+                       return axi_op->id == axi_id;
+                     }) != pending.end()) {
+      std::cerr << "AXI W id " << axi_id << " is already pending" << std::endl;
       abort();
     }
-    pending.emplace_back(op);
+    pending.emplace_back(axi_op);
   }
 
   *dataP.ready = 1;
@@ -186,7 +180,7 @@ void AXIWriter::step(uint64_t ts) {
       abort();
     }
 
-    AXIOperationT *op = pending.front();
+    AXIOperationT *axi_op = pending.front();
 
 #if AXI_DEBUG
     std::cout << main_time << " AXI W: data id=" << op->id << " op=" << op
@@ -194,18 +188,19 @@ void AXIWriter::step(uint64_t ts) {
 #endif
 
     uint64_t data_bytes = (dataP.data_bits + 7) / 8;
-    size_t align = (op->addr + op->off) % data_bytes;
+    size_t align = (axi_op->addr + axi_op->off) % data_bytes;
 #if AXI_DEBUG
     std::cout << "AXI W: align=" << align << " off=" << op->off
               << " step_size=" << op->step_size << std::endl;
 #endif
-    memcpy(op->buf + op->off, (uint8_t *)dataP.data + align,
-           std::min(data_bytes - align, op->step_size));
-    op->off += op->step_size;
-    if (op->off > op->len) {
+    memcpy(axi_op->buf + axi_op->off,
+           static_cast<uint8_t *>(dataP.data) + align,
+           std::min(data_bytes - align, axi_op->step_size));
+    axi_op->off += axi_op->step_size;
+    if (axi_op->off > axi_op->len) {
       std::cerr << "AXI W operation too long?" << std::endl;
       abort();
-    } else if (op->off == op->len) {
+    } else if (axi_op->off == axi_op->len) {
       if (!*dataP.last) {
         std::cerr << "AXI W operation is done but last is not set?"
                   << std::endl;
@@ -213,18 +208,18 @@ void AXIWriter::step(uint64_t ts) {
       }
 
       pending.pop_front();
-      doWrite(op);
-      suspend_until = main_time + 16 * (1'000'000 / 150ULL);
+      doWrite(axi_op);
+      // suspend_until = main_time + 16 * (1'000'000 / 150ULL);
     }
   }
 }
 
-void AXIWriter::writeDone(AXIOperationT *op) {
+void AXIWriter::writeDone(AXIOperationT *axi_op) {
 #if AXI_DEBUG
   std::cout << main_time << " AXI W: completed write for op=" << op
             << std::endl;
 #endif
-  completed.push_back(op);
+  completed.push_back(axi_op);
 }
 
 void MMIOInterface::step(uint64_t update_ts) {
@@ -247,7 +242,7 @@ void MMIOInterface::step(uint64_t update_ts) {
       uint64_t data_offset =
           rCur->addr % port_width;  // for unaligned transfers, data is
                                     // received at this offset on data port
-      memcpy(&rCur->value, (uint8_t *)ports.rdata + data_offset,
+      memcpy(&rCur->value, static_cast<uint8_t *>(ports.rdata) + data_offset,
              std::min(port_width - data_offset, sizeof(rCur->value)));
       rDAck = true;  // need to delay with ready high for a full cycle for
                      // chisel code to fully register
@@ -309,15 +304,15 @@ void MMIOInterface::step(uint64_t update_ts) {
 
   } else if (/* !top.clk && */ !queue.empty()) {
     /* issue new operation */
-    MMIOOp *op = queue.front();
+    MMIOOp *axi_op = queue.front();
 #if MMIO_DEBUG
     std::cout << main_time << " MMIO: issuing new op on axi op=" << op
               << std::endl;
 #endif
     queue.pop_front();
-    if (!op->isWrite) {
+    if (!axi_op->isWrite) {
       /* issue new read */
-      rCur = op;
+      rCur = axi_op;
 
       memcpy(ports.araddr, &rCur->addr, (ports.addrBits + 7) / 8);
       rAAck = ports.arready;
@@ -326,7 +321,7 @@ void MMIOInterface::step(uint64_t update_ts) {
       ports.rready = 1;
     } else {
       /* issue new write */
-      wCur = op;
+      wCur = axi_op;
 
       memcpy(ports.awaddr, &wCur->addr, (ports.addrBits + 7) / 8);
       wAAck = ports.awready;
@@ -336,11 +331,11 @@ void MMIOInterface::step(uint64_t update_ts) {
       uint64_t data_offset =
           wCur->addr % port_width;  // for unaligned transfers, we must write
                                     // at this offset to data port
-      memcpy((uint8_t *)ports.wdata + data_offset, &wCur->value,
+      memcpy(static_cast<uint8_t *>(ports.wdata) + data_offset, &wCur->value,
              std::min(port_width - data_offset, sizeof(wCur->value)));
       static_assert(sizeof(wCur->value) == 4,
                     "the following line assumes a fixed data length of 32 bit");
-      ((uint8_t *)ports.wstrb)[data_offset] = 0xF;
+      (static_cast<uint8_t *>(ports.wstrb))[data_offset] = 0xF;
       wDAck = false;
       ports.wvalid = 0;
 

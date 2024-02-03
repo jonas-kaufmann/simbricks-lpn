@@ -25,10 +25,13 @@ include mk/subdir_pre.mk
 verilator_obj_dir := $(d)obj_dir
 
 # jpeg_decoder_verilator
+# This simulates just the RTL of the JPEG decoder itself.
 bin_jpeg_decoder := $(d)jpeg_decoder_verilator
-verilator_bin_jpeg_decoder := $(verilator_obj_dir)/Vjpeg_decoder_dma
+verilator_bin_jpeg_decoder := $(verilator_obj_dir)/Vjpeg_decoder
 verilator_mk_jpeg_decoder := $(verilator_bin_jpeg_decoder).mk
 srcs_jpeg_decoder := $(addprefix $(d),jpeg_decoder_verilator.cc axi.cc)
+jpeg_decoder_top := $(d)rtl/src_v/jpeg_decoder.v
+jpeg_decoder_search_paths := $(addprefix $(d),rtl/src_v rtl/jpeg_core/src_v)
 
 $(verilator_mk_jpeg_decoder):
 	$(VERILATOR) $(VFLAGS) --cc -O3 \
@@ -36,12 +39,9 @@ $(verilator_mk_jpeg_decoder):
 		-CFLAGS "-I$(abspath $(lib_dir)) -iquote $(abspath $(base_dir))" \
 		--Mdir $(verilator_obj_dir) \
 		-LDFLAGS "-L$(abspath $(lib_dir)) -lsimbricks" \
-		-y /home/jonask/Repos/jpeg_decoder_sim/xsim/srcs/rtl/xil_defaultlib \
-		-y /home/jonask/Repos/jpeg_decoder_sim/xsim/srcs/sources_1/new \
 		--exe \
-		--top-module jpeg_decoder_dma \
-		/home/jonask/Repos/jpeg_decoder_sim/xsim/srcs/sources_1/bd/jpeg_decoder_dma/ip/*/sim/* \
-		/home/jonask/Repos/jpeg_decoder_sim/xsim/srcs/sources_1/bd/jpeg_decoder_dma/sim/jpeg_decoder_dma.v \
+		$(addprefix -y ,$(jpeg_decoder_search_paths)) \
+		$(jpeg_decoder_top) \
 		$(abspath $(srcs_jpeg_decoder))
 
 $(verilator_bin_jpeg_decoder): $(verilator_mk_jpeg_decoder) $(lib_simbricks) $(srcs_jpeg_decoder)
@@ -50,7 +50,10 @@ $(verilator_bin_jpeg_decoder): $(verilator_mk_jpeg_decoder) $(lib_simbricks) $(s
 $(bin_jpeg_decoder): $(verilator_bin_jpeg_decoder)
 	cp $< $@
 
-# jpeg_deocder_multiple_verilator
+# jpeg_decoder_multiple_verilator
+# This simulates the whole RTL of everything that is pushed onto the FPGA in the
+# AC/DSim project. For example, there are now AXI adapters added around the JPEG
+# decoder. It uses the RTL directly expoprted from Vivado.
 bin_jpeg_decoder_multiple2 := $(d)jpeg_decoder_multiple2_verilator
 verilator_bin_jpeg_decoder_multiple2 := $(verilator_obj_dir)/Vjpeg_decoder_multiple2
 verilator_mk_jpeg_decoder_multiple2 := $(verilator_bin_jpeg_decoder_multiple2).mk
