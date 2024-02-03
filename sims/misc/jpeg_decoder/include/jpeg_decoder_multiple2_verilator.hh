@@ -102,7 +102,6 @@ class JpegDecoderMemWriter : public AXIWriter {
     cwa->cache = &top.saxigp2_awcache;
     cwa->prot = &top.saxigp2_awprot;
     cwa->qos = &top.saxigp2_awqos;
-    cwa->id = &top.saxigp2_bid;
     return cwa;
   }
 
