@@ -289,7 +289,7 @@ void JpegDecoderBm::DevctrlUpdate(
 int main(int argc, char *argv[]) {
   signal(SIGINT, sigint_handler);
   signal(SIGUSR1, sigusr1_handler);
-  signal(SIGUSR1, sigusr2_handler);
+  signal(SIGUSR2, sigusr2_handler);
   if (!jpeg_decoder.ParseArgs(argc, argv)) {
     return EXIT_FAILURE;
   }
