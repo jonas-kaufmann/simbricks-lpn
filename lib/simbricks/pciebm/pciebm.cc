@@ -36,6 +36,7 @@
 #include <cstring>
 #include <ctime>
 #include <iostream>
+#include <memory>
 #include <vector>
 
 #include "simbricks/base/if.h"
@@ -45,7 +46,7 @@ extern "C" {
 #include <simbricks/base/proto.h>
 }
 
-#define DEBUG_PCIEBM 0
+#define DEBUG_PCIEBM 1
 #define DMA_MAX_PENDING 64
 
 namespace pciebm {
@@ -85,71 +86,72 @@ volatile union SimbricksProtoPcieD2H *PcieBM::D2HAlloc() {
   return msg;
 }
 
-void PcieBM::IssueDma(DMAOp &dma_op) {
-  if (dma_pending_ < DMA_MAX_PENDING) {
+void PcieBM::IssueDma(std::unique_ptr<DMAOp> dma_op) {
+  if (dma_pending_.size() < DMA_MAX_PENDING) {
 // can directly issue
 #if DEBUG_PCIEBM
-    printf(
-        "main_time = %lu: pciebm: issuing dma op %p addr %lx len %zu pending "
-        "%zu\n",
-        main_time_, &dma_op, dma_op.dma_addr, dma_op.len, dma_pending_);
+    std::cout << "PcieBM::IssueDma() main_time " << main_time_
+              << " issuing dma " << (dma_op->write ? "write" : "read") << " op "
+              << dma_op.get() << " addr " << dma_op->dma_addr << " len "
+              << dma_op->len << " pending " << dma_pending_.size() << std::endl;
 #endif
-    DmaDo(dma_op);
+    DmaDo(std::move(dma_op));
   } else {
 #if DEBUG_PCIEBM
     printf(
         "main_time = %lu: pciebm: enqueuing dma op %p addr %lx len %zu pending "
         "%zu\n",
-        main_time_, &dma_op, dma_op.dma_addr, dma_op.len, dma_pending_);
+        main_time_, dma_op.get(), dma_op->dma_addr, dma_op->len,
+        dma_pending_.size());
 #endif
-    dma_queue_.emplace_back(dma_op);
+    dma_queue_.push(std::move(dma_op));
   }
 }
 
 void PcieBM::DmaTrigger() {
-  if (dma_queue_.empty() || dma_pending_ == DMA_MAX_PENDING)
+  if (dma_queue_.empty() || dma_pending_.size() == DMA_MAX_PENDING)
     return;
 
-  DMAOp &dma_op = dma_queue_.front();
-  DmaDo(dma_op);
-  dma_queue_.pop_front();
+  std::unique_ptr<DMAOp> dma_op = std::move(dma_queue_.front());
+  dma_queue_.pop();
+  DmaDo(std::move(dma_op));
 }
 
-void PcieBM::DmaDo(DMAOp &dma_op) {
+void PcieBM::DmaDo(std::unique_ptr<DMAOp> dma_op) {
   if (SimbricksBaseIfInTerminated(&pcieif_.base))
     return;
 
-  volatile union SimbricksProtoPcieD2H *msg = D2HAlloc();
-  dma_pending_++;
 #if DEBUG_PCIEBM
   printf(
-      "main_time = %lu: pciebm: executing dma dma_op %p addr %lx len %zu "
-      "pending "
+      "main_time = %lu: pciebm: executing dma_op %p addr %lx len %zu pending "
       "%zu\n",
-      main_time_, &dma_op, dma_op.dma_addr, dma_op.len, dma_pending_);
+      main_time_, dma_op.get(), dma_op->dma_addr, dma_op->len,
+      dma_pending_.size());
 #endif
 
+  volatile union SimbricksProtoPcieD2H *msg = D2HAlloc();
+
   size_t maxlen = SimbricksPcieIfD2HOutMsgLen(&pcieif_);
-  if (dma_op.write) {
+  if (dma_op->write) {
     volatile struct SimbricksProtoPcieD2HWrite *write = &msg->write;
-    if (maxlen < sizeof(*write) + dma_op.len) {
+    if (maxlen < sizeof(*write) + dma_op->len) {
       fprintf(stderr,
               "issue_dma: write too big (%zu), can only fit up "
               "to (%zu)\n",
-              dma_op.len, maxlen - sizeof(*write));
+              dma_op->len, maxlen - sizeof(*write));
       abort();
     }
 
-    write->req_id = reinterpret_cast<uintptr_t>(&dma_op);
-    write->offset = dma_op.dma_addr;
-    write->len = dma_op.len;
+    write->req_id = reinterpret_cast<uintptr_t>(dma_op.get());
+    write->offset = dma_op->dma_addr;
+    write->len = dma_op->len;
     // NOLINTNEXTLINE(google-readability-casting)
-    memcpy((void *)write->data, dma_op.data, dma_op.len);
+    memcpy((void *)write->data, dma_op->data, dma_op->len);
 
 #if DEBUG_PCIEBM
-    uint8_t *tmp = static_cast<uint8_t *>(dma_op.data);
+    uint8_t *tmp = static_cast<uint8_t *>(dma_op->data);
     printf("main_time = %lu: pciebm: dma write data: \n", main_time_);
-    for (size_t i = 0; i < dma_op.len; i++) {
+    for (size_t i = 0; i < dma_op->len; i++) {
       printf("%02X ", *tmp);
       tmp++;
     }
@@ -158,20 +160,23 @@ void PcieBM::DmaDo(DMAOp &dma_op) {
                               SIMBRICKS_PROTO_PCIE_D2H_MSG_WRITE);
   } else {
     volatile struct SimbricksProtoPcieD2HRead *read = &msg->read;
-    if (maxlen < sizeof(struct SimbricksProtoPcieH2DReadcomp) + dma_op.len) {
-      fprintf(stderr,
-              "issue_dma: write too big (%zu), can only fit up "
-              "to (%zu)\n",
-              dma_op.len,
-              maxlen - sizeof(struct SimbricksProtoPcieH2DReadcomp));
+    if (maxlen < sizeof(struct SimbricksProtoPcieH2DReadcomp) + dma_op->len) {
+      fprintf(
+          stderr, "issue_dma: read too big (%zu), can only fit up to (%zu)\n",
+          dma_op->len, maxlen - sizeof(struct SimbricksProtoPcieH2DReadcomp));
       abort();
     }
 
-    read->req_id = reinterpret_cast<uintptr_t>(&dma_op);
-    read->offset = dma_op.dma_addr;
-    read->len = dma_op.len;
+    read->req_id = reinterpret_cast<uintptr_t>(dma_op.get());
+    read->offset = dma_op->dma_addr;
+    read->len = dma_op->len;
     SimbricksPcieIfD2HOutSend(&pcieif_, msg, SIMBRICKS_PROTO_PCIE_D2H_MSG_READ);
   }
+
+  auto inserted = dma_pending_.emplace(
+      reinterpret_cast<uintptr_t>(dma_op.get()), std::move(dma_op));
+  assert(inserted.second &&
+         "PcieBM::DMADo() Inserting dma_op into dma_pending_ failed.");
 }
 
 void PcieBM::MsiIssue(uint8_t vec) {
@@ -225,8 +230,8 @@ void PcieBM::IntXIssue(bool level) {
                             SIMBRICKS_PROTO_PCIE_D2H_MSG_INTERRUPT);
 }
 
-void PcieBM::EventSchedule(TimedEvent &evt) {
-  events_.push(evt);
+void PcieBM::EventSchedule(std::unique_ptr<TimedEvent> evt) {
+  events_.push(std::move(evt));
 }
 
 void PcieBM::H2DRead(volatile struct SimbricksProtoPcieH2DRead *read) {
@@ -282,36 +287,36 @@ void PcieBM::H2DWrite(volatile struct SimbricksProtoPcieH2DWrite *write,
 
 void PcieBM::H2DReadcomp(
     volatile struct SimbricksProtoPcieH2DReadcomp *readcomp) {
+  uintptr_t dma_op_ptr = static_cast<uintptr_t>(readcomp->req_id);
   // NOLINTNEXTLINE(performance-no-int-to-ptr)
-  DMAOp *dma_op = reinterpret_cast<DMAOp *>(readcomp->req_id);
+  std::unique_ptr<DMAOp> dma_op =
+      std::move(dma_pending_.extract(dma_op_ptr).mapped());
 
 #if DEBUG_PCIEBM
   printf("main_time = %lu: pciebm: completed dma read op %p addr %lx len %zu\n",
-         main_time_, dma_op, dma_op->dma_addr, dma_op->len);
+         main_time_, dma_op.get(), dma_op->dma_addr, dma_op->len);
 #endif
 
   // NOLINTNEXTLINE(google-readability-casting)
   memcpy(dma_op->data, (void *)readcomp->data, dma_op->len);
-  DmaComplete(*dma_op);
-
-  dma_pending_--;
+  DmaComplete(std::move(dma_op));
   DmaTrigger();
 }
 
 void PcieBM::H2DWritecomp(
     volatile struct SimbricksProtoPcieH2DWritecomp *writecomp) {
+  uintptr_t dma_op_ptr = static_cast<uintptr_t>(writecomp->req_id);
   // NOLINTNEXTLINE(performance-no-int-to-ptr)
-  DMAOp *dma_op = reinterpret_cast<DMAOp *>(writecomp->req_id);
+  std::unique_ptr<DMAOp> dma_op =
+      std::move(dma_pending_.extract(dma_op_ptr).mapped());
 
 #if DEBUG_PCIEBM
   printf(
       "main_time = %lu: pciebm: completed dma write op %p addr %lx len %zu\n",
-      main_time_, dma_op, dma_op->dma_addr, dma_op->len);
+      main_time_, dma_op.get(), dma_op->dma_addr, dma_op->len);
 #endif
 
-  DmaComplete(*dma_op);
-
-  dma_pending_--;
+  DmaComplete(std::move(dma_op));
   DmaTrigger();
 }
 
@@ -390,20 +395,24 @@ std::optional<uint64_t> PcieBM::EventNext() {
   if (events_.empty())
     return {};
 
-  return {events_.top().get().time};
+  return {events_.top()->time};
 }
 
 void PcieBM::EventTrigger() {
   if (events_.empty())
     return;
 
-  TimedEvent &evt = events_.top();
-  if (evt.time > main_time_)
+  if (events_.top()->time > main_time_)
     return;
 
+  std::unique_ptr<TimedEvent> evt =
+      // The const_cast here to get rid of the const qualifier from
+      // `events_top()` is only fine because we pop right after. Otherwise we
+      // would violate the invariants of the priority_queue.
+      std::move(const_cast<std::unique_ptr<TimedEvent> &>(events_.top()));
   events_.pop();
-  
-  ExecuteEvent(evt);
+
+  ExecuteEvent(std::move(evt));
 }
 
 void PcieBM::YieldPoll() {

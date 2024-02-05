@@ -25,10 +25,12 @@
 #ifndef SIMBRICKS_PCIEBM_PCIEBM_H_
 #define SIMBRICKS_PCIEBM_PCIEBM_H_
 
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <optional>
 #include <queue>
+#include <unordered_set>
 #include <vector>
 
 #include <simbricks/base/cxxatomicfix.h>
@@ -51,10 +53,13 @@ struct TimedEvent {
 };
 
 /* This is required for the priority queue of references to `TimedEvent`*/
-inline bool operator>(const TimedEvent &first, const TimedEvent &second) {
-  return first.time > second.time ||
-         (first.time == second.time && first.priority > second.priority);
-}
+struct TimedEventPtrGreater {
+  bool operator()(const std::unique_ptr<TimedEvent> &lhs,
+                  const std::unique_ptr<TimedEvent> &rhs) const {
+    return lhs->time > rhs->time ||
+           (lhs->time == rhs->time && lhs->priority > rhs->priority);
+  }
+};
 
 /* This is an abstract base for PCIe device simulators that implement a
  * behavioral model. The idea is to inherit from this class and implement the
@@ -83,11 +88,10 @@ class PcieBM {
                         size_t len) = 0;
 
   /* The previously issued DMA operation `op` has been completed. */
-  virtual void DmaComplete(DMAOp &dma_op) = 0;
+  virtual void DmaComplete(std::unique_ptr<DMAOp> dma_op) = 0;
 
-  /* Execute the previously scheduled event `evt`. A call to this function This
-  function should also free its associated memory. */
-  virtual void ExecuteEvent(TimedEvent &evt) = 0;
+  /* Callback for executing the previously scheduled event `evt`. */
+  virtual void ExecuteEvent(std::unique_ptr<TimedEvent> evt) = 0;
 
   /* Callback for a device control update request. */
   virtual void DevctrlUpdate(struct SimbricksProtoPcieH2DDevctrl &devctrl) = 0;
@@ -98,7 +102,7 @@ class PcieBM {
    */
 
   /* Issue a DMA PCIe request with the details in `dma_op`. */
-  void IssueDma(DMAOp &dma_op);
+  void IssueDma(std::unique_ptr<DMAOp> dma_op);
 
   /* Issue an MSI interrupt over PCIe. */
   void MsiIssue(uint8_t vec);
@@ -112,11 +116,8 @@ class PcieBM {
   /* Returns the current timestamp in picoseconds. */
   uint64_t TimePs() const;
 
-  /* Schedule an event to be executed in the future. The caller takes care of
-  the memory management of `evt`. The passed reference needs to remain valid
-  until `ExecuteEvent()` is invoked.
-  */
-  void EventSchedule(TimedEvent &evt);
+  /* Schedule an event to be executed in the future. */
+  void EventSchedule(std::unique_ptr<TimedEvent> evt);
 
   /* Returns the timestamp of the earliest event that's scheduled to be
    * executed. If no scheduled event exists, returns an empty std::optional */
@@ -124,12 +125,12 @@ class PcieBM {
 
  private:
   uint64_t main_time_;
-  std::priority_queue<std::reference_wrapper<TimedEvent>,
-                      std::vector<std::reference_wrapper<TimedEvent>>,
-                      std::greater<>>
+  std::priority_queue<std::unique_ptr<TimedEvent>,
+                      std::vector<std::unique_ptr<TimedEvent>>,
+                      TimedEventPtrGreater>
       events_;
-  std::deque<std::reference_wrapper<DMAOp>> dma_queue_;
-  size_t dma_pending_;
+  std::queue<std::unique_ptr<DMAOp>> dma_queue_;
+  std::unordered_map<uintptr_t, std::unique_ptr<DMAOp>> dma_pending_;
 
   struct SimbricksBaseIfParams pcieParams_;
   const char *shmPath_;
@@ -167,7 +168,7 @@ class PcieBM {
 
   void EventTrigger();
 
-  void DmaDo(DMAOp &dma_op);
+  void DmaDo(std::unique_ptr<DMAOp> dma_op);
   void DmaTrigger();
 
   void YieldPoll();
