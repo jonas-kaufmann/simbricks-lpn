@@ -46,7 +46,7 @@ extern "C" {
 #include <simbricks/base/proto.h>
 }
 
-#define DEBUG_PCIEBM 1
+#define DEBUG_PCIEBM 0
 #define DMA_MAX_PENDING 64
 
 namespace pciebm {
