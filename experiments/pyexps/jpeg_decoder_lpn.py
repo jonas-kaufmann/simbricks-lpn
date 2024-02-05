@@ -19,7 +19,6 @@
 # CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
 # TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 # SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-import math
 import os
 import typing as tp
 
@@ -46,10 +45,6 @@ class JpegDecoderWorkload(node.AppConfig):
         ]
 
     def run_cmds(self, node: NodeConfig) -> tp.List[str]:
-        bs = 1024
-        assert self.dma_src_addr % bs == 0
-        assert self.dma_dst_addr % bs == 0
-
         with Image.open(self.img) as img:
             width, height = img.size
 
@@ -59,8 +54,9 @@ class JpegDecoderWorkload(node.AppConfig):
             'echo "dead beef" >/sys/bus/pci/drivers/vfio-pci/new_id',
             # copy image into memory
             (
-                f'dd if=/tmp/guest/{os.path.basename(self.img)} bs={bs} '
-                f'of=/dev/mem seek={self.dma_src_addr // bs} status=progress'
+                f'dd if=/tmp/guest/{os.path.basename(self.img)} '
+                f'of=/dev/mem seek={self.dma_src_addr} oflag=seek_bytes '
+                'status=progress'
             ),
             # invoke workload driver
             (
@@ -68,14 +64,12 @@ class JpegDecoderWorkload(node.AppConfig):
                 f'{self.dma_src_addr} {os.path.getsize(self.img)} '
                 f'{self.dma_dst_addr}'
             ),
-            f'hexdump /dev/mem -n 1024 -s {self.dma_dst_addr}',
             # dump the image as base64 to stdout
-            # (
-            #     f'dd if=/dev/mem skip={self.dma_dst_addr // bs} bs={bs} '
-            #     f'of=/img.jpg count={math.ceil(width * height * 3 / bs)} '
-            #     'status=progress'
-            # ),
-            # 'base64 /img.jpg'
+            (
+                f'dd if=/dev/mem iflag=skip_bytes,count_bytes '
+                f'skip={self.dma_dst_addr} count={width * height * 2} '
+                'status=progress | base64'
+            )
         ]
         return cmds
 
@@ -91,27 +85,36 @@ class JpegDecoderWorkload(node.AppConfig):
         }
 
 
-e = exp.Experiment('jpeg_decoder_lpn')
-e.checkpoint = True
+experiments: tp.List[exp.Experiment] = []
+for variant in ['lpn', 'rtl']:
+    e = exp.Experiment(f'jpeg_decoder-{variant}')
+    e.checkpoint = True
 
-node_cfg = node.NodeConfig()
-node_cfg.kcmd_append = 'memmap=512M!1G'
-dma_src = 1 * 1024**3
-dma_dst = dma_src + 10 * 1024**2
-node_cfg.memory = 2 * 1024
-node_cfg.app = JpegDecoderWorkload(
-    '../sims/lpn/jpeg_decoder/test_data/test.jpg', dma_src, dma_dst
-)
-host = sim.Gem5Host(node_cfg)
-host.wait = True
-e.add_host(host)
+    node_cfg = node.NodeConfig()
+    node_cfg.kcmd_append = 'memmap=512M!1G'
+    dma_src = 1 * 1024**3
+    dma_dst = dma_src + 10 * 1024**2
+    node_cfg.memory = 2 * 1024
+    node_cfg.app = JpegDecoderWorkload(
+        '../sims/misc/jpeg_decoder/large_test_img_unoptimized.jpg',
+        dma_src,
+        dma_dst
+    )
+    host = sim.Gem5Host(node_cfg)
+    host.wait = True
+    e.add_host(host)
 
-jpeg_dev = sim.JpegDecoderLpnBmDev()
-host.add_pcidev(jpeg_dev)
-e.add_pcidev(jpeg_dev)
+    if variant == 'lpn':
+        jpeg_dev = sim.JpegDecoderLpnBmDev()
+    elif variant == 'rtl':
+        jpeg_dev = sim.JpegDecoderDev()
+    else:
+        raise NameError(f'Variant {variant} is unhandled')
+    host.add_pcidev(jpeg_dev)
+    e.add_pcidev(jpeg_dev)
 
-# TODO set realistic PCIe latencies, default is 500 ns
-# host.pci_latency = host.sync_period = jpeg_dev.pci_latency = \
-#     jpeg_dev.sync_period = 110
+    # TODO set realistic PCIe latencies, default is 500 ns
+    # host.pci_latency = host.sync_period = jpeg_dev.pci_latency = \
+    #     jpeg_dev.sync_period = 110
 
-experiments = [e]
+    experiments.append(e)

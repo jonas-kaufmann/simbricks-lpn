@@ -956,17 +956,17 @@ class FEMUDev(PCIDevSim):
 
 class GcdDev(PCIDevSim):
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
         self.clock_freq = 250
         """Clock frequency in MHz."""
         self.start_tick = 0
         self.name = 'gcd_verilator'
 
-    def resreq_mem(self):
+    def resreq_mem(self) -> int:
         return 512  # this is a guess
 
-    def run_cmd(self, env):
+    def run_cmd(self, env: ExpEnv) -> str:
         return (
             f'{env.repodir}/sims/misc/gcd/gcd_verilator '
             f'{env.dev_pci_path(self)} {env.dev_shm_path(self)} '
@@ -977,16 +977,16 @@ class GcdDev(PCIDevSim):
 
 class JpegDecoderDev(PCIDevSim):
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
         self.start_tick = 0
         self.name = 'jpeg_decoder'
         self.variant = 'jpeg_decoder_verilator'
 
-    def resreq_mem(self):
+    def resreq_mem(self) -> int:
         return 512  # this is a guess
 
-    def run_cmd(self, env):
+    def run_cmd(self, env: ExpEnv) -> str:
         return (
             f'{env.repodir}/sims/misc/jpeg_decoder/{self.variant} '
             f'{env.dev_pci_path(self)} {env.dev_shm_path(self)} '
@@ -998,15 +998,15 @@ class JpegDecoderDev(PCIDevSim):
 class JpegDecoderLpnBmDev(PCIDevSim):
     """Behavioral model of the JPEG decoder based on a Latency Petri Net."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
         self.start_tick = 0
         self.name = 'jpeg_decoder_lpn_bm'
 
-    def resreq_mem(self):
+    def resreq_mem(self) -> int:
         return 512  # this is a guess
 
-    def run_cmd(self, env):
+    def run_cmd(self, env: ExpEnv) -> str:
         return (
             f'{env.repodir}/sims/lpn/jpeg_decoder/jpeg_decoder_bm '
             f'{env.dev_pci_path(self)} {env.dev_shm_path(self)} '
