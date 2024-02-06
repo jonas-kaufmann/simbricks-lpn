@@ -83,9 +83,11 @@ MASK6 = 0b111111
 for y in range(height):
     for x in range(width):
         idx_565 = y * width + x
-        img_rgb888[y, x, 0] = (img_rgb565[idx_565] & MASK5) << 3
+        # TODO For the RTL version, red and blue channels are flipped here to
+        # what I'd expect. Not sure why.
+        img_rgb888[y, x, 2] = (img_rgb565[idx_565] & MASK5) << 3
         img_rgb888[y, x, 1] = ((img_rgb565[idx_565] >> 5) & MASK6) << 2
-        img_rgb888[y, x, 2] = ((img_rgb565[idx_565] >> 5 + 6) & MASK5) << 3
+        img_rgb888[y, x, 0] = ((img_rgb565[idx_565] >> 5 + 6) & MASK5) << 3
 
 plt.imshow(img_rgb888)
 plt.show()
