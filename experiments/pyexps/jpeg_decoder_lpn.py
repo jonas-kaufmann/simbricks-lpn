@@ -56,7 +56,6 @@ class JpegDecoderWorkload(node.AppConfig):
             (
                 f'dd if=/tmp/guest/{os.path.basename(self.img)} '
                 f'of=/dev/mem seek={self.dma_src_addr} oflag=seek_bytes '
-                'status=progress'
             ),
             # invoke workload driver
             (
@@ -65,11 +64,13 @@ class JpegDecoderWorkload(node.AppConfig):
                 f'{self.dma_dst_addr}'
             ),
             # dump the image as base64 to stdout
+            f'echo image dump begin {width} {height}',
             (
                 f'dd if=/dev/mem iflag=skip_bytes,count_bytes '
                 f'skip={self.dma_dst_addr} count={width * height * 2} '
-                'status=progress | base64'
-            )
+                'status=none | base64'
+            ),
+            'echo image dump end'
         ]
         return cmds
 
@@ -96,7 +97,7 @@ for variant in ['lpn', 'rtl']:
     dma_dst = dma_src + 10 * 1024**2
     node_cfg.memory = 2 * 1024
     node_cfg.app = JpegDecoderWorkload(
-        '../sims/misc/jpeg_decoder/large_test_img_unoptimized.jpg',
+        '../sims/lpn/jpeg_decoder/test_data/test.jpg',
         dma_src,
         dma_dst
     )
