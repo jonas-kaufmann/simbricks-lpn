@@ -20,6 +20,8 @@
 
 #define FREQ_MHZ 150000000
 #define FREQ_MHZ_NORMALIZED 150
+#define MASK5 0b11111
+#define MASK6 0b111111
 
 static JpegDecoderBm jpeg_decoder{};
 
@@ -203,24 +205,25 @@ void JpegDecoderBm::ExecuteEvent(std::unique_ptr<pciebm::TimedEvent> evt) {
     if (rgb_cur_len > rgb_consumed_len) {
       std::cout << "rgb_cur_len=" << rgb_cur_len
                 << " rgb_consumed_len=" << rgb_consumed_len << std::endl;
-      uint64_t bytes_to_write = rgb_cur_len - rgb_consumed_len;
-      auto decoded_img_data = std::make_unique<uint16_t[]>(bytes_to_write);
+      uint64_t pixels_to_write = rgb_cur_len - rgb_consumed_len;
+      auto decoded_img_data = std::make_unique<uint16_t[]>(pixels_to_write);
       uint8_t *r_out = GetMOutputR();
       uint8_t *g_out = GetMOutputG();
       uint8_t *b_out = GetMOutputB();
-      for (uint64_t i = 0; i < bytes_to_write; ++i) {
+      for (uint64_t i = 0; i < pixels_to_write; ++i) {
         // convert to RGB 565
         uint16_t pixel = 0;
-        pixel |= r_out[i + rgb_consumed_len] >> 3 & 0b11111;
-        pixel |= ((g_out[i + rgb_consumed_len] >> 2) & 0b111111) << 5;
-        pixel |= ((b_out[i + rgb_consumed_len] >> 3) & 0b11111) << 11;
+        pixel |= (r_out[rgb_consumed_len + i] >> 3) & MASK5;
+        pixel |= ((g_out[rgb_consumed_len + i] >> 2) & MASK6) << 5;
+        pixel |= ((b_out[rgb_consumed_len + i] >> 3) & MASK5) << (5 + 6);
         decoded_img_data[i] = pixel;
       }
       // split image into multiple DMAs and write back
       JpegDecoderDmaWriteOp *last_dma = nullptr;
-      for (uint64_t i = 0; i < bytes_to_write; i += DMA_BLOCK_SIZE) {
-        uint64_t dma_addr = Registers_.dst + rgb_consumed_len + i;
-        uint64_t len = std::min<uint64_t>(rgb_cur_len - i, DMA_BLOCK_SIZE);
+      for (uint64_t i = 0; i < pixels_to_write * 2; i += DMA_BLOCK_SIZE) {
+        // the `* 2` is required since we have two bytes per pixel  
+        uint64_t dma_addr = Registers_.dst + rgb_consumed_len * 2 + i;
+        uint64_t len = std::min<uint64_t>(rgb_cur_len * 2 - i, DMA_BLOCK_SIZE);
         auto dma_op = std::make_unique<JpegDecoderDmaWriteOp>(dma_addr, len);
         last_dma = dma_op.get();
 
