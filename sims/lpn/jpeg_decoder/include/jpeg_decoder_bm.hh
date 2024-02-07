@@ -6,7 +6,7 @@
 
 #include "jpeg_decoder_regs.hh"
 
-#define DMA_BLOCK_SIZE 16  // 128 Byte
+#define DMA_BLOCK_SIZE 16
 
 class JpegDecoderBm : public pciebm::PcieBM {
   void SetupIntro(struct SimbricksProtoPcieDevIntro &dev_intro) override;

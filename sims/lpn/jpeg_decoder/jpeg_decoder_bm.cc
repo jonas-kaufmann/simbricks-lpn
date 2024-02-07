@@ -204,6 +204,9 @@ void JpegDecoderBm::ExecuteEvent(std::unique_ptr<pciebm::TimedEvent> evt) {
     }
     // split image into multiple DMAs and write back
     JpegDecoderDmaWriteOp *last_dma = nullptr;
+    // TODO We should probably only send a single DMA transfer here and then
+    // invoke the next one as soon as this one finished instead of sending them
+    // all at once to be more realistic. Seems to be fine for the moment though.
     for (uint64_t i = 0; i < pixels_to_write * 2; i += DMA_BLOCK_SIZE) {
       // the `* 2` is required since we have two bytes per pixel
       uint64_t dma_addr = Registers_.dst + i;
