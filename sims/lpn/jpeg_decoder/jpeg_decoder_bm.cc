@@ -37,16 +37,6 @@ static void sigusr2_handler(int dummy) {
   jpeg_decoder.SIGUSR2Handler();
 }
 
-// static uint64_t clock_period = 1'000'000'000'000 / FREQ_MHZ;
-// static uint64_t PsToCycles(uint64_t ps) {
-//   return ps*FREQ_MHZ_NORMALIZED / 1'000'000;
-// }
-// static uint64_t CyclesToPs(uint64_t cycles) {
-//   if (cycles == lpn::LARGE) return lpn::LARGE;
-//   // opportunity for overflow
-//   return cycles * 1'000'000 / FREQ_MHZ_NORMALIZED;
-// }
-
 void JpegDecoderBm::SetupIntro(struct SimbricksProtoPcieDevIntro &dev_intro) {
   dev_intro.pci_vendor_id = 0xdead;
   dev_intro.pci_device_id = 0xbeef;
@@ -207,8 +197,6 @@ void JpegDecoderBm::ExecuteEvent(std::unique_ptr<pciebm::TimedEvent> evt) {
     for (uint64_t i = 0; i < pixels_to_write; ++i) {
       // convert to RGB 565
       uint16_t pixel = 0;
-      pixel |= (r_out[rgb_consumed_len + i] >> 3) & MASK5 << (5 + 6);
-      pixel |= (g_out[rgb_consumed_len + i] >> 2) & MASK6 << 5;
       pixel |= (b_out[rgb_consumed_len + i] >> 3) & MASK5;
       pixel |= ((g_out[rgb_consumed_len + i] >> 2) & MASK6) << 5;
       pixel |= ((r_out[rgb_consumed_len + i] >> 3) & MASK5) << (5 + 6);
@@ -217,9 +205,10 @@ void JpegDecoderBm::ExecuteEvent(std::unique_ptr<pciebm::TimedEvent> evt) {
     // split image into multiple DMAs and write back
     JpegDecoderDmaWriteOp *last_dma = nullptr;
     for (uint64_t i = 0; i < pixels_to_write * 2; i += DMA_BLOCK_SIZE) {
-      // the `* 2` is required since we have two bytes per pixel  
+      // the `* 2` is required since we have two bytes per pixel
       uint64_t dma_addr = Registers_.dst + i;
-      uint64_t len = std::min<uint64_t>(pixels_to_write * 2 - i, DMA_BLOCK_SIZE);
+      uint64_t len =
+          std::min<uint64_t>(pixels_to_write * 2 - i, DMA_BLOCK_SIZE);
       auto dma_op = std::make_unique<JpegDecoderDmaWriteOp>(dma_addr, len);
       last_dma = dma_op.get();
 
@@ -232,88 +221,6 @@ void JpegDecoderBm::ExecuteEvent(std::unique_ptr<pciebm::TimedEvent> evt) {
       Reset();
     }
   }
-  // uint64_t rgb_cur_len = GetCurRGBOffset();
-  // if (rgb_cur_len > 0) {
-  //   uint64_t rgb_consumed_len = GetConsumedRGBOffset();
-  //   if (rgb_cur_len > rgb_consumed_len) {
-  //     std::cout << "rgb_cur_len=" << rgb_cur_len
-  //               << " rgb_consumed_len=" << rgb_consumed_len << std::endl;
-  //     uint64_t pixels_to_write = rgb_cur_len - rgb_consumed_len;
-  //     auto decoded_img_data = std::make_unique<uint16_t[]>(pixels_to_write);
-  //     uint8_t *r_out = GetMOutputR();
-  //     uint8_t *g_out = GetMOutputG();
-  //     uint8_t *b_out = GetMOutputB();
-  //     for (uint64_t i = 0; i < pixels_to_write; ++i) {
-  //       // convert to RGB 565
-  //       uint16_t pixel = 0;
-  //       // std::cout << "r" << int(r_out[rgb_consumed_len + i]) << " g" << int(g_out[rgb_consumed_len + i]) << " b" << int(b_out[rgb_consumed_len + i]) << std::endl; 
-  //       pixel |= (r_out[rgb_consumed_len + i] >> 3) & MASK5;
-  //       pixel |= ((g_out[rgb_consumed_len + i] >> 2) & MASK6) << 5;
-  //       pixel |= ((b_out[rgb_consumed_len + i] >> 3) & MASK5) << (5 + 6);
-  //       decoded_img_data[i] = pixel;
-  //     }
-  //     // split image into multiple DMAs and write back
-  //     JpegDecoderDmaWriteOp *last_dma = nullptr;
-  //     for (uint64_t i = 0; i < pixels_to_write * 2; i += DMA_BLOCK_SIZE) {
-  //       // the `* 2` is required since we have two bytes per pixel  
-  //       uint64_t dma_addr = Registers_.dst + rgb_consumed_len * 2 + i;
-  //       uint64_t len = std::min<uint64_t>(pixels_to_write * 2 - i, DMA_BLOCK_SIZE);
-  //       auto dma_op = std::make_unique<JpegDecoderDmaWriteOp>(dma_addr, len);
-  //       last_dma = dma_op.get();
-
-  //       uint8_t *img_data_src =
-  //           reinterpret_cast<uint8_t *>(decoded_img_data.get()) + i;
-  //       std::memcpy(dma_op->buffer, img_data_src, len);
-  //       IssueDma(std::move(dma_op));
-  //     }
-
-  //     UpdateConsumedRGBOffset(rgb_cur_len);
-
-  //     if (IsCurImgFinished()) {
-  //       assert(last_dma != nullptr);
-  //       last_dma->last_block = true;
-  //       assert(rgb_cur_len == GetSizeOfRGB());
-  //       Reset();
-  //     }
-  //   }
-  // }
-
-  // if (IsCurImgFinished()) {
-  //   // assemble image
-  //   uint64_t total_bytes_for_each_rgb = GetSizeOfRGB();
-  //   uint64_t total_bytes = total_bytes_for_each_rgb*3;
-  //   // DecodedImgData_ = reinterpret_cast<uint8_t
-  //   *>(std::malloc(total_bytes_for_each_rgb*3)); std::unique_ptr<uint8_t[]>
-  //   DecodedImgData_ =
-  //   std::make_unique<uint8_t[]>(total_bytes_for_each_rgb*3);
-
-  //   uint8_t *r_out = GetMOutputR();
-  //   uint8_t *g_out = GetMOutputG();
-  //   uint8_t *b_out = GetMOutputB();
-  //   for (uint64_t i = 0; i < total_bytes_for_each_rgb; ++i) {
-  //     DecodedImgData_[i * 3] = r_out[i];
-  //     DecodedImgData_[i * 3 + 1] = g_out[i];
-  //     DecodedImgData_[i * 3 + 2] = b_out[i];
-  //   }
-  //   // split image into multiple DMAs and write back
-  //   JpegDecoderDmaWriteOp *dma_op = nullptr;
-  //   for (uint64_t bytes_written = 0; bytes_written < total_bytes;) {
-  //     uint64_t len =
-  //         std::min<uint64_t>(total_bytes - bytes_written, DMA_BLOCK_SIZE);
-
-  //     dma_op = new JpegDecoderDmaWriteOp{Registers_.dst + bytes_written, len,
-  //                                        DecodedImgData_.get() +
-  //                                        bytes_written};
-  //     IssueDma(*dma_op);
-  //     bytes_written += len;
-  //   }
-
-  //   assert(dma_op != nullptr);
-  //   dma_op->last_block = true;
-  //   Reset();
-  // }
-
-  // else: No more event
 }
 
 void JpegDecoderBm::DevctrlUpdate(
