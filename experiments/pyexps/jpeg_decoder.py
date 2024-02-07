@@ -106,10 +106,10 @@ class JpegDecoderWorkload(node.AppConfig):
 
 
 experiments: tp.List[exp.Experiment] = []
-for host_var in ['gem5', 'qemu_icount']:
+for host_var in ['gem5', 'qemu_icount', 'qemu_kvm']:
     for jpeg_var in ['lpn', 'rtl']:
         e = exp.Experiment(f'jpeg_decoder-{host_var}-{jpeg_var}')
-        e.checkpoint = host_var not in ['qemu_icount']
+        e.checkpoint = host_var not in ['qemu_icount', 'qemu_kvm']
 
         node_cfg = node.NodeConfig()
         node_cfg.kcmd_append = 'memmap=512M!1G'
@@ -130,6 +130,9 @@ for host_var in ['gem5', 'qemu_icount']:
             node_cfg.app.pci_dev = '0000:00:02.0'
             host = sim.QemuHost(node_cfg)
             host.sync = True
+        elif host_var == 'qemu_kvm':
+            node_cfg.app.pci_dev = '0000:00:02.0'
+            host = sim.QemuHost(node_cfg)
         else:
             raise NameError(f'Variant {host_var} is unhandled')
         host.wait = True
@@ -144,12 +147,14 @@ for host_var in ['gem5', 'qemu_icount']:
         host.add_pcidev(jpeg_dev)
         e.add_pcidev(jpeg_dev)
 
-        # host.pci_latency = host.sync_period = jpeg_dev.pci_latency = \
-        #     jpeg_dev.sync_period = 110
-        
-        # TODO set realistic PCIe latencies, this is 10000 ns to make simulation
-        # fast for testing
+        # TODO set realistic PCIe latencies, this is 2000 ns to make simulation
+        # fast for testing. On the physical board with no PCIe and just AXI, I
+        # measured 110 ns.
+        #
+        # With more than 2000 ns, the the lower half of the decoded image is
+        # somehow missing. The same effect can be observed when running with
+        # QEMU KVM.
         host.pci_latency = host.sync_period = jpeg_dev.pci_latency = \
-            jpeg_dev.sync_period = 10000
+            jpeg_dev.sync_period = 1000
 
         experiments.append(e)
