@@ -118,7 +118,7 @@ for host_var in ['gem5', 'qemu_icount']:
         node_cfg.memory = 2 * 1024
         node_cfg.app = JpegDecoderWorkload(
             '0000:00:00.0',
-            '../sims/misc/jpeg_decoder/test_img_4_2_0/medium_test_img_unopt_420.jpg',
+            '../sims/misc/jpeg_decoder/test_img/420/medium.jpg',
             dma_src,
             dma_dst,
             True
