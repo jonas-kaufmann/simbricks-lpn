@@ -19,8 +19,10 @@
 # CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
 # TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 # SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+import os
 import typing as tp
-from enum import Enum
+
+from PIL import Image
 
 import simbricks.orchestration.experiments as exp
 import simbricks.orchestration.nodeconfig as node
@@ -28,40 +30,22 @@ import simbricks.orchestration.simulators as sim
 from simbricks.orchestration.nodeconfig import NodeConfig
 
 
-class ImgType(Enum):
-    small = 'small_test_img.jpg'
-    small_unopt = 'small_test_img_unoptimized.jpg'
-    medium = 'medium_test_img.jpg'
-    medium_unopt = 'medium_test_img_unoptimized.jpg'
-
-    def input_size(self):
-        if self == ImgType.small:
-            return 303
-        elif self == ImgType.small_unopt:
-            return 660
-        elif self == ImgType.medium:
-            return 645813
-        elif self == ImgType.medium_unopt:
-            return 808139
-        raise RuntimeError('unknown ImgType')
-
-    def result_size(self):
-        if self in [ImgType.small, ImgType.small_unopt]:
-            return 16 * 16 * 2
-        elif self in [ImgType.medium, ImgType.medium_unopt]:
-            return 2560 * 1440 * 2
-        raise RuntimeError('unknown ImgType')
-
-
 class JpegDecoderWorkload(node.AppConfig):
 
     def __init__(
-        self, img_type: ImgType, dma_src_addr: int, dma_dst_addr: int
+        self,
+        pci_dev: str,
+        img: str,
+        dma_src_addr: int,
+        dma_dst_addr: int,
+        debug: bool
     ) -> None:
         super().__init__()
-        self.img_type = img_type
+        self.pci_dev = pci_dev
+        self.img = img
         self.dma_src_addr = dma_src_addr
         self.dma_dst_addr = dma_dst_addr
+        self.debug = debug
 
     def prepare_pre_cp(self) -> tp.List[str]:
         return [
@@ -70,77 +54,102 @@ class JpegDecoderWorkload(node.AppConfig):
         ]
 
     def run_cmds(self, node: NodeConfig) -> tp.List[str]:
-        bs = 1024
-        assert self.dma_src_addr % bs == 0
+        with Image.open(self.img) as img:
+            width, height = img.size
+            f'echo image dump begin {width} {height}',
+            (
+                f'dd if=/dev/mem iflag=skip_bytes,count_bytes '
+                f'skip={self.dma_dst_addr} count={width * height * 2} '
+                'status=none | base64'
+            ),
+            'echo image dump end'
         cmds = [
+            # enable vfio access to JPEG decoder
             'echo 1 >/sys/module/vfio/parameters/enable_unsafe_noiommu_mode',
             'echo "dead beef" >/sys/bus/pci/drivers/vfio-pci/new_id',
-            f'dd if=/tmp/guest/{self.img_type.value} bs={bs} of=/dev/mem '
-            f'seek={self.dma_src_addr // bs} status=progress',
-            '/tmp/guest/jpeg_decoder_workload 0000:00:00.0 '
-            f'{self.dma_src_addr} {self.img_type.input_size()} {self.dma_dst_addr}'
+            # copy image into memory
+            (
+                f'dd if=/tmp/guest/{os.path.basename(self.img)} bs=4096 '
+                f'of=/dev/mem seek={self.dma_src_addr} oflag=seek_bytes '
+            ),
+            # invoke workload driver
+            (
+                f'/tmp/guest/jpeg_decoder_workload_driver {self.pci_dev} '
+                f'{self.dma_src_addr} {os.path.getsize(self.img)} '
+                f'{self.dma_dst_addr}'
+            ),
         ]
-        if self.img_type in [
-            ImgType.small,
-            ImgType.small_unopt,
-            ImgType.medium,
-            ImgType.medium_unopt
-        ]:
-            cmds.append(f'hexdump /dev/mem -n 1024 -s {self.dma_dst_addr}')
+
+        if self.debug:
+            # dump the image as base64 to stdout
+            cmds.extend([
+                f'echo image dump begin {width} {height}',
+                (
+                    f'dd if=/dev/mem iflag=skip_bytes,count_bytes bs=4096 '
+                    f'skip={self.dma_dst_addr} count={width * height * 2} '
+                    'status=none | base64'
+                ),
+                'echo image dump end'
+            ])
         return cmds
 
     def config_files(self) -> tp.Dict[str, tp.IO]:
         return {
-            'jpeg_decoder_workload':
-                open('../sims/misc/jpeg_decoder/jpeg_decoder_workload', 'rb'),
-            ImgType.small.value:
-                open(f'../sims/misc/jpeg_decoder/{ImgType.small.value}', 'rb'),
-            ImgType.small_unopt.value:
+            'jpeg_decoder_workload_driver':
                 open(
-                    f'../sims/misc/jpeg_decoder/{ImgType.small_unopt.value}',
+                    '../sims/lpn/jpeg_decoder/jpeg_decoder_workload_driver',
                     'rb'
                 ),
-            ImgType.medium.value:
-                open(f'../sims/misc/jpeg_decoder/{ImgType.medium.value}', 'rb'),
-            ImgType.medium_unopt.value:
-                open(
-                    f'../sims/misc/jpeg_decoder/{ImgType.medium_unopt.value}',
-                    'rb'
-                ),
+            os.path.basename(self.img):
+                open(self.img, 'rb'),
         }
 
 
-experiments = []
-img_type: ImgType
-img_types = {
-    'single': [ImgType.small, ImgType.medium],
-    'multiple': [ImgType.small_unopt, ImgType.medium_unopt]
-}
-
-for variant in ['single', 'multiple']:
-    for img_type in img_types[variant]:
-        e = exp.Experiment(f'jpeg_decoder_{variant}_{img_type.name}')
-        e.checkpoint = True
+experiments: tp.List[exp.Experiment] = []
+for host_var in ['gem5', 'qemu_icount']:
+    for jpeg_var in ['lpn', 'rtl']:
+        e = exp.Experiment(f'jpeg_decoder-{host_var}-{jpeg_var}')
+        e.checkpoint = host_var not in ['qemu_icount']
 
         node_cfg = node.NodeConfig()
         node_cfg.kcmd_append = 'memmap=512M!1G'
         dma_src = 1 * 1024**3
         dma_dst = dma_src + 10 * 1024**2
         node_cfg.memory = 2 * 1024
-        node_cfg.app = JpegDecoderWorkload(img_type, dma_src, dma_dst)
-        host = sim.Gem5Host(node_cfg)
+        node_cfg.app = JpegDecoderWorkload(
+            '0000:00:00.0',
+            '../sims/misc/jpeg_decoder/test_img_4_2_0/medium_test_img_unopt_420.jpg',
+            dma_src,
+            dma_dst,
+            True
+        )
+
+        if host_var == 'gem5':
+            host = sim.Gem5Host(node_cfg)
+        elif host_var == 'qemu_icount':
+            node_cfg.app.pci_dev = '0000:00:02.0'
+            host = sim.QemuHost(node_cfg)
+            host.sync = True
+        else:
+            raise NameError(f'Variant {host_var} is unhandled')
         host.wait = True
-        host.cpu_freq = '1200MHz'
-        host.sys_clock = '1200MHz'
         e.add_host(host)
 
-        jpeg_dev = sim.JpegDecoderDev()
-        if variant == 'multiple':
-            jpeg_dev.variant = 'jpeg_decoder_multiple2_verilator'
+        if jpeg_var == 'lpn':
+            jpeg_dev = sim.JpegDecoderLpnBmDev()
+        elif jpeg_var == 'rtl':
+            jpeg_dev = sim.JpegDecoderDev()
+        else:
+            raise NameError(f'Variant {jpeg_var} is unhandled')
         host.add_pcidev(jpeg_dev)
         e.add_pcidev(jpeg_dev)
 
-        # set realistic latencies for AXI
+        # host.pci_latency = host.sync_period = jpeg_dev.pci_latency = \
+        #     jpeg_dev.sync_period = 110
+        
+        # TODO set realistic PCIe latencies, this is 10000 ns to make simulation
+        # fast for testing
         host.pci_latency = host.sync_period = jpeg_dev.pci_latency = \
-            jpeg_dev.sync_period = 110
+            jpeg_dev.sync_period = 10000
+
         experiments.append(e)
