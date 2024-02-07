@@ -207,10 +207,11 @@ void JpegDecoderBm::ExecuteEvent(std::unique_ptr<pciebm::TimedEvent> evt) {
     for (uint64_t i = 0; i < pixels_to_write; ++i) {
       // convert to RGB 565
       uint16_t pixel = 0;
-      // std::cout << "r" << int(r_out[rgb_consumed_len + i]) << " g" << int(g_out[rgb_consumed_len + i]) << " b" << int(b_out[rgb_consumed_len + i]) << std::endl; 
-      pixel |= (r_out[rgb_consumed_len + i] >> 3) & MASK5;
+      pixel |= (r_out[rgb_consumed_len + i] >> 3) & MASK5 << (5 + 6);
+      pixel |= (g_out[rgb_consumed_len + i] >> 2) & MASK6 << 5;
+      pixel |= (b_out[rgb_consumed_len + i] >> 3) & MASK5;
       pixel |= ((g_out[rgb_consumed_len + i] >> 2) & MASK6) << 5;
-      pixel |= ((b_out[rgb_consumed_len + i] >> 3) & MASK5) << (5 + 6);
+      pixel |= ((r_out[rgb_consumed_len + i] >> 3) & MASK5) << (5 + 6);
       decoded_img_data[i] = pixel;
     }
     // split image into multiple DMAs and write back
