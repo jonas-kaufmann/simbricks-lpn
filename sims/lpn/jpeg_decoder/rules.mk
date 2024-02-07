@@ -27,9 +27,6 @@ bin_jpeg_decoder_bm := $(d)jpeg_decoder_bm
 
 bm_objs := $(addprefix $(d),jpeg_decoder_bm.o)
 
-$(bm_objs): CPPFLAGS += -g -ggdb
-$(bin_jpeg_decoder_bm): LDFLAGS += -g -ggdb
-
 $(bin_jpeg_decoder_bm): $(bm_objs) $(lib_pciebm) $(lib_pcie) $(lib_base) \
 	$(lib_lpnsim)
 
