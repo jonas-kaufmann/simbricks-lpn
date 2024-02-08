@@ -58,12 +58,12 @@ static JpegDecoderMMIOInterface jpeg_decoder_mmio{top, mmio_done};
 
 static uint64_t clock_period = 1'000'000 / 150ULL;  // 150 MHz
 static int exiting;
-static int print_cur_ts_requested;
 static bool tracing_active;
 static char *trace_filename;
 static uint64_t trace_nr;
 static uint64_t tracing_start;  // used to make every trace start at 0
 static struct SimbricksPcieIf pcieif;
+static uint64_t cur_ts;
 
 // Expose control over Verilator simulation through BAR. This represents the
 // underlying memory that's being accessed.
@@ -74,7 +74,7 @@ extern "C" void sigint_handler(int dummy) {
 }
 
 extern "C" void sigusr1_handler(int dummy) {
-  print_cur_ts_requested = 1;
+  std::cerr << "cur_ts=" << cur_ts << std::endl;
 }
 
 volatile union SimbricksProtoPcieD2H *d2h_alloc(uint64_t cur_ts) {
@@ -310,13 +310,6 @@ bool poll_h2d(uint64_t cur_ts) {
   return true;
 }
 
-inline void print_cur_ts_if_requested(uint64_t cur_ts) {
-  if (print_cur_ts_requested) {
-    print_cur_ts_requested = 0;
-    std::cout << "current timestamp " << cur_ts << std::endl;
-  }
-}
-
 int main(int argc, char **argv) {
   if (argc < 3 || argc > 7) {
     std::cerr
@@ -340,6 +333,7 @@ int main(int argc, char **argv) {
   }
 
   bool sync = SimbricksBaseIfSyncEnabled(&pcieif.base);
+  std::cerr << "sync=" << sync << std::endl;
 
   signal(SIGINT, sigint_handler);
   signal(SIGUSR1, sigusr1_handler);
@@ -358,16 +352,13 @@ int main(int argc, char **argv) {
 
   // main simulation loop
   while (!exiting) {
-    uint64_t cur_ts = vcontext.time();
-    print_cur_ts_if_requested(cur_ts);
+    cur_ts = vcontext.time();
 
     // send required sync messages
     while (SimbricksPcieIfD2HOutSync(&pcieif, cur_ts) < 0) {
       std::cerr << "warn: SimbricksPcieIfD2HOutSync failed cur_ts=" << cur_ts
                 << std::endl;
     }
-
-    print_cur_ts_if_requested(cur_ts);
 
     // process available incoming messages for current timestamp
     do {
@@ -384,16 +375,17 @@ int main(int argc, char **argv) {
     vcontext.timeInc(clock_period / 2);
 
     // input changes to model
-    jpeg_decoder_mmio.step(vcontext.time());
+    cur_ts = vcontext.time();
+    jpeg_decoder_mmio.step(cur_ts);
 
-    jpeg_decoder_mem_reader.step(vcontext.time());
-    jpeg_decoder_mem_writer.step(vcontext.time());
+    jpeg_decoder_mem_reader.step(cur_ts);
+    jpeg_decoder_mem_writer.step(cur_ts);
 
     // evaluate Verilator model for one tick
     top.clk = 1;
     top.eval();
     if (tracing_active) {
-      trace.dump(vcontext.time() - tracing_start);
+      trace.dump(cur_ts - tracing_start);
     }
     vcontext.timeInc(clock_period / 2);
   }
