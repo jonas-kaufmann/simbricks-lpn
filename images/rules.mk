@@ -30,6 +30,7 @@ MEMCACHED_IMAGE := $(d)output-memcached/memcached
 NOPAXOS_IMAGE := $(d)output-nopaxos/nopaxos
 MTCP_IMAGE := $(d)output-mtcp/mtcp
 TAS_IMAGE := $(d)output-tas/tas
+VTA_IMAGE := $(d)output-vta/vta
 COMPRESSED_IMAGES ?= false
 
 IMAGES := $(BASE_IMAGE) $(NOPAXOS_IMAGE) $(MEMCACHED_IMAGE)
@@ -120,6 +121,15 @@ $(TAS_IMAGE): $(packer) $(QEMU) $(BASE_IMAGE) \
 	cd $(img_dir) && ./packer-wrap.sh base tas extended-image.pkr.hcl \
 	    $(COMPRESSED_IMAGES)
 	touch $@
+
+$(VTA_IMAGE): $(packer) $(QEMU) $(BASE_IMAGE) \
+    $(addprefix $(d), extended-image.pkr.hcl scripts/install-vta.sh \
+      scripts/cleanup.sh)
+	rm -rf $(dir $@)
+	cd $(img_dir) && ./packer-wrap.sh base vta extended-image.pkr.hcl \
+	    $(COMPRESSED_IMAGES)
+	touch $@
+
 
 $(packer):
 	wget -O $(img_dir)packer_$(PACKER_VERSION)_linux_amd64.zip \

@@ -99,6 +99,14 @@ femu-clean:
 	-+cd $(EXTERNAL_SIMS_DIR)femu && $(MAKE) clean
 	rm -f $(EXTERNAL_SIMS_DIR)femu/ready
 
+$(d)vta:
+	git clone --branch=simbricks \
+	  https://github.com/simbricks/tvm-vta-simbricks.git $@
+
+$(d)vta/ready: $(d)vta $(lib_nicif)
+	cd $</simbricks && $(MAKE)
+	touch $@
+
 DISTCLEAN := $(d)gem5 $(d)qemu $(d)ns-3 $(d)femu
 EXTERNAL_CLEAN_TASKS := gem5-clean qemu-clean ns-3-clean femu-clean
 include mk/subdir_post.mk

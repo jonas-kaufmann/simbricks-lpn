@@ -13,3 +13,6 @@
 [submodule "sims/misc/jpeg_decoder/rtl"]
 	path = sims/misc/jpeg_decoder/rtl
 	url = https://github.com/jonas-kaufmann/core_jpeg_decoder.git
+[submodule "sims/external/vta"]
+	path = sims/external/vta
+	url = https://github.com/simbricks/tvm-vta-simbricks.git
