@@ -27,6 +27,8 @@ bin_jpeg_decoder_bm := $(d)jpeg_decoder_bm
 
 bm_objs := $(addprefix $(d),jpeg_decoder_bm.o)
 
+$(bin_jpeg_decoder_bm): CPPFLAGS += -fsanitize=address -g
+$(bin_jpeg_decoder_bm): LDFLAGS += -fsanitize=address -static-libasan
 $(bin_jpeg_decoder_bm): $(bm_objs) $(lib_pciebm) $(lib_pcie) $(lib_base) \
 	$(lib_lpnsim)
 
