@@ -30,15 +30,9 @@ import base64
 import numpy as np
 import matplotlib.pyplot as plt
 
-if len(sys.argv) != 2:
-    print('Usage: jpeg_decoder.py experiment_output.json')
-    sys.exit(1)
 
-# parse lines from output json and edit them
-with open(sys.argv[1], mode='r', encoding='utf-8') as file:
-    exp_out = json.load(file)
-    stdout: tp.List[str] = exp_out['sims']['host.']['stdout']
-
+def show_base64_encoded_img(stdout: tp.List[str]) -> bool:
+    # parse lines from output json and edit them
     start_idx = None
     for i in range(len(stdout)):
         if stdout[i].startswith('image dump begin'):
@@ -51,7 +45,7 @@ with open(sys.argv[1], mode='r', encoding='utf-8') as file:
 
     if start_idx is None:
         print('Couldn\'t find start string ("image dump begin")')
-        sys.exit(1)
+        return False
 
     end_idx = None
     for i in range(start_idx, len(stdout)):
@@ -62,7 +56,7 @@ with open(sys.argv[1], mode='r', encoding='utf-8') as file:
 
     if end_idx is None:
         print('Couldn\'t find end string ("image dump end")')
-        sys.exit(1)
+        return False
 
     eliminate = r'\[ *\d+(\.\d+)?\] random: crng init done'
 
@@ -72,22 +66,71 @@ with open(sys.argv[1], mode='r', encoding='utf-8') as file:
 
     edited_lines = list(map(edit_line, stdout[start_idx:end_idx]))
 
-# convert base64 encoded image to ppm and show it
-decoded_img = base64.b64decode(''.join(edited_lines), validate=True)
-img_rgb565 = np.frombuffer(decoded_img, dtype=np.uint16)
-assert (len(img_rgb565) == width * height)
-img_rgb888 = np.empty((height, width, 3), dtype=np.uint8)
+    # convert base64 encoded image to ppm and show it
+    decoded_img = base64.b64decode(''.join(edited_lines), validate=True)
+    img_rgb565 = np.frombuffer(decoded_img, dtype=np.uint16)
+    assert (len(img_rgb565) == width * height)
+    img_rgb888 = np.empty((height, width, 3), dtype=np.uint8)
 
-MASK5 = 0b011111
-MASK6 = 0b111111
-for y in range(height):
-    for x in range(width):
-        idx_565 = y * width + x
-        # TODO For the RTL version, red and blue channels are flipped here to
-        # what I'd expect. Not sure why.
-        img_rgb888[y, x, 2] = (img_rgb565[idx_565] & MASK5) << 3
-        img_rgb888[y, x, 1] = ((img_rgb565[idx_565] >> 5) & MASK6) << 2
-        img_rgb888[y, x, 0] = ((img_rgb565[idx_565] >> 5 + 6) & MASK5) << 3
+    MASK5 = 0b011111
+    MASK6 = 0b111111
+    for y in range(height):
+        for x in range(width):
+            idx_565 = y * width + x
+            # TODO For the RTL version, red and blue channels are flipped here to
+            # what I'd expect. Not sure why.
+            img_rgb888[y, x, 2] = (img_rgb565[idx_565] & MASK5) << 3
+            img_rgb888[y, x, 1] = ((img_rgb565[idx_565] >> 5) & MASK6) << 2
+            img_rgb888[y, x, 0] = ((img_rgb565[idx_565] >> 5 + 6) & MASK5) << 3
 
-plt.imshow(img_rgb888)
-plt.show()
+    plt.imshow(img_rgb888)
+    plt.show()
+
+    return True
+
+
+def extract_decoding_durations(stdout: tp.List[str]) -> None:
+    durations = dict()
+    i = 0
+    while i < len(stdout):
+        # find image name
+        while i < len(stdout):
+            if stdout[i].startswith('starting decode of image'):
+                split = stdout[i].split(' ')
+                img_name = split[4].removesuffix('\r')
+                i += 1  # continue in next line
+                break
+            else:
+                i += 1
+
+        # find line with duration
+        while i < len(stdout):
+            if stdout[i].startswith('duration:'):
+                split = split = stdout[i].split(' ')
+                durations[img_name] = int(split[1])
+                i += 1  # continue in next line
+                break
+            else:
+                i += 1
+
+    # print durations
+    if durations:
+        print('Durations in ns for decoding images:')
+        for img, dur in sorted(durations.items()):
+            print(img, dur)
+
+
+def main():
+    if len(sys.argv) != 2:
+        print('Usage: jpeg_decoder.py experiment_output.json')
+        sys.exit(1)
+
+    with open(sys.argv[1], mode='r', encoding='utf-8') as file:
+        exp_out = json.load(file)
+        stdout: tp.List[str] = exp_out['sims']['host.']['stdout']
+        show_base64_encoded_img(stdout)
+        extract_decoding_durations(stdout)
+
+
+if __name__ == '__main__':
+    main()
