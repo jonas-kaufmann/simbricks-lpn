@@ -44,8 +44,9 @@ void AXIReader::step(uint64_t cur_ts) {
     AXIOperationT *axi_op =
         new AXIOperationT(addr, size * (*addrP.len + 1), axi_id, size, this);
 #if AXI_DEBUG
-    std::cout << main_time << " AXI R: new op=" << op << " addr=" << op->addr
-              << " len=" << op->len << " id=" << op->id << std::endl;
+    std::cout << main_time << " AXI R: new op=" << axi_op
+              << " addr=" << axi_op->addr << " len=" << axi_op->len
+              << " id=" << axi_op->id << std::endl;
 #endif
     doRead(axi_op);
   }
@@ -105,10 +106,10 @@ void AXIReader::step(uint64_t cur_ts) {
 
 void AXIReader::readDone(AXIOperationT *axi_op) {
 #if AXI_DEBUG
-  std::cout << main_time << " AXI R: enqueue op=" << op << std::endl;
+  std::cout << main_time << " AXI R: enqueue op=" << axi_op << std::endl;
   std::cout << "    ";
-  for (size_t i = 0; i < op->len; i++) {
-    std::cout << (unsigned)op->buf[i] << " ";
+  for (size_t i = 0; i < axi_op->len; i++) {
+    std::cout << (unsigned)axi_op->buf[i] << " ";
   }
   std::cout << std::endl;
 #endif
@@ -160,8 +161,8 @@ void AXIWriter::step(uint64_t cur_ts) {
     AXIOperationT *axi_op =
         new AXIOperationT(addr, size * (*addrP.len + 1), axi_id, size, this);
 #if AXI_DEBUG
-    std::cout << main_time << " AXI W: new op=" << op << " addr=" << op->addr
-              << " len=" << op->len << " id=" << op->id << std::endl;
+    std::cout << main_time << " AXI W: new op=" << axi_op << " addr=" << axi_op->addr
+              << " len=" << axi_op->len << " id=" << axi_op->id << std::endl;
 #endif
     if (std::find_if(pending.begin(), pending.end(),
                      [axi_id](AXIOperationT *axi_op) {
@@ -183,15 +184,15 @@ void AXIWriter::step(uint64_t cur_ts) {
     AXIOperationT *axi_op = pending.front();
 
 #if AXI_DEBUG
-    std::cout << main_time << " AXI W: data id=" << op->id << " op=" << op
+    std::cout << main_time << " AXI W: data id=" << axi_op->id << " op=" << axi_op
               << " last=" << (unsigned)*dataP.last << std::endl;
 #endif
 
     uint64_t data_bytes = (dataP.data_bits + 7) / 8;
     size_t align = (axi_op->addr + axi_op->off) % data_bytes;
 #if AXI_DEBUG
-    std::cout << "AXI W: align=" << align << " off=" << op->off
-              << " step_size=" << op->step_size << std::endl;
+    std::cout << "AXI W: align=" << align << " off=" << axi_op->off
+              << " step_size=" << axi_op->step_size << std::endl;
 #endif
     memcpy(axi_op->buf + axi_op->off,
            static_cast<uint8_t *>(dataP.data) + align,
@@ -216,7 +217,7 @@ void AXIWriter::step(uint64_t cur_ts) {
 
 void AXIWriter::writeDone(AXIOperationT *axi_op) {
 #if AXI_DEBUG
-  std::cout << main_time << " AXI W: completed write for op=" << op
+  std::cout << main_time << " AXI W: completed write for op=" << axi_op
             << std::endl;
 #endif
   completed.push_back(axi_op);
