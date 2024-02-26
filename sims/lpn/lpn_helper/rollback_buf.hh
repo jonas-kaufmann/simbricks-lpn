@@ -8,7 +8,7 @@
 #define dprintf
 #define BUF_SIZE 8192 * 2
 
-static size_t last_idx;
+static size_t last_idx = 0;
 static size_t last_buf_size = 0; 
 
 uint8_t* GetGlobalBuffer() {
@@ -84,3 +84,11 @@ void RollLog(){
 
 
 #endif
+
+void RollbackBufReset(){
+    last_buf_size = 0;
+    last_idx = 0;
+    uint8_t* gbuf = GetGlobalBuffer();
+    free(gbuf);
+    assert(gbuf == nullptr);
+}

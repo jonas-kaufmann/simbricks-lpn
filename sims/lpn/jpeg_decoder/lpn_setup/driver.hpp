@@ -33,11 +33,16 @@ static jpeg_mcu_block  m_mcu_dec(&m_bit_buffer, &m_dht);
 
 static std::vector<int> mcu_cnt;
 
-static uint16_t m_width;
-static uint16_t m_height;
+static uint16_t m_width = 0;
+static uint16_t m_height = 0;
 static uint16_t rgb_cur_len = 0;
 static uint16_t rgb_consumed_len = 0;
 static int num_tokens_for_cur_img = 0;
+
+
+uint8_t *GetMOutputR();
+uint8_t *GetMOutputG();
+uint8_t *GetMOutputB();
 
 bool IsCurImgFinished() {
     if (num_tokens_for_cur_img == 0){
@@ -48,6 +53,26 @@ bool IsCurImgFinished() {
 }
 
 void Reset() {
+    m_width = 0;
+    m_height = 0;
+    rgb_cur_len = 0;
+    rgb_consumed_len = 0;
+    num_tokens_for_cur_img = 0;
+    uint8_t* m_output_r = GetMOutputR();
+    uint8_t* m_output_g = GetMOutputG();
+    uint8_t* m_output_b = GetMOutputB();
+
+    free(m_output_r);
+    free(m_output_g);
+    free(m_output_b);
+
+    assert(m_output_r == nullptr);
+    assert(m_output_g == nullptr);
+    assert(m_output_b == nullptr);
+    
+    RollbackBufReset();
+
+    ptasks.reset();
     pdone.reset();
 }
 
