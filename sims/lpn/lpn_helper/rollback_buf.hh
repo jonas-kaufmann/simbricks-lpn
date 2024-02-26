@@ -2,27 +2,29 @@
 #define __LPN_HELPER_ROLLBACK_BUF__
 #include <stdlib.h>
 #include <stdint.h>
+#include <cassert>
 #include <cstdio>
 #include <cstring>
 #define dprintf
+#define BUF_SIZE 8192 * 2
 
 static size_t last_idx;
 static size_t last_buf_size = 0; 
 
 uint8_t* GetGlobalBuffer() {
-    static uint8_t* buffer = static_cast<uint8_t*>(malloc(sizeof(uint8_t)*8192*2));
+    static uint8_t* buffer = static_cast<uint8_t*>(malloc(sizeof(uint8_t)*BUF_SIZE));
     return buffer;
 }
 
 uint8_t* GetNewBuffer() {
-    static uint8_t* buffer = static_cast<uint8_t*>(malloc(sizeof(uint8_t)*8192*2));
-    memset(buffer, 0, sizeof(uint8_t)*8192*2);
+    static uint8_t* buffer = static_cast<uint8_t*>(malloc(sizeof(uint8_t)*BUF_SIZE));
+    memset(buffer, 0, sizeof(uint8_t) * BUF_SIZE);
     return buffer;
 }
 uint8_t* AugmentBufWithLast(uint8_t* buf, size_t& len){
     uint8_t* last_buf = GetGlobalBuffer();
     if(last_buf_size == 0) return buf;
-    len = len+last_buf_size;
+    assert(len < sizeof(uint8_t) * BUF_SIZE && "AugmentBufWithLast() new data doesn't fit in buffer");
     dprintf(" alloc new buf with size %zu \n", len);
     uint8_t* new_buf = GetNewBuffer();
     for(int i = 0; i < last_buf_size; i++){
@@ -31,6 +33,7 @@ uint8_t* AugmentBufWithLast(uint8_t* buf, size_t& len){
     for(int i = 0; i < len; i++){
         new_buf[i+last_buf_size] = buf[i];
     }
+    len = len+last_buf_size;
     dprintf("AugmentBufWithLast last_buf_size %zu, new len %zu \n", last_buf_size, len);
     // reset
     last_buf_size = 0;
