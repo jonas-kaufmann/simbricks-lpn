@@ -33,7 +33,7 @@ TAS_IMAGE := $(d)output-tas/tas
 VTA_IMAGE := $(d)output-vta/vta
 COMPRESSED_IMAGES ?= false
 
-IMAGES := $(BASE_IMAGE) $(NOPAXOS_IMAGE) $(MEMCACHED_IMAGE)
+IMAGES := $(BASE_IMAGE) $(NOPAXOS_IMAGE) $(MEMCACHED_IMAGE) $(VTA_IMAGE)
 RAW_IMAGES := $(addsuffix .raw,$(IMAGES))
 
 IMAGES_MIN := $(BASE_IMAGE)
