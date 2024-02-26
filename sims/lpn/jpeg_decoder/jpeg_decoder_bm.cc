@@ -220,9 +220,10 @@ void JpegDecoderBm::ExecuteEvent(std::unique_ptr<pciebm::TimedEvent> evt) {
       std::memcpy(dma_op->buffer, img_data_src, len);
       IssueDma(std::move(dma_op));
       assert(last_dma != nullptr);
-      last_dma->last_block = true;
-      Reset();
     }
+    if(last_dma)
+      last_dma->last_block = true;
+    Reset();
   }
 }
 

@@ -10,16 +10,22 @@
 
 static size_t last_idx = 0;
 static size_t last_buf_size = 0; 
+static uint8_t* buffer = nullptr;
+static uint8_t* new_buffer = nullptr;
 
 uint8_t* GetGlobalBuffer() {
-    static uint8_t* buffer = static_cast<uint8_t*>(malloc(sizeof(uint8_t)*BUF_SIZE));
+    if(buffer==nullptr){
+        buffer = static_cast<uint8_t*>(malloc(sizeof(uint8_t)*BUF_SIZE));
+    }
     return buffer;
 }
 
 uint8_t* GetNewBuffer() {
-    static uint8_t* buffer = static_cast<uint8_t*>(malloc(sizeof(uint8_t)*BUF_SIZE));
-    memset(buffer, 0, sizeof(uint8_t) * BUF_SIZE);
-    return buffer;
+    if(new_buffer==nullptr){
+        new_buffer = static_cast<uint8_t*>(malloc(sizeof(uint8_t)*BUF_SIZE));
+        memset(new_buffer, 0, sizeof(uint8_t) * BUF_SIZE);
+    }
+    return new_buffer;
 }
 uint8_t* AugmentBufWithLast(uint8_t* buf, size_t& len){
     uint8_t* last_buf = GetGlobalBuffer();
@@ -83,12 +89,13 @@ void RollLog(){
     }
 
 
-#endif
-
 void RollbackBufReset(){
     last_buf_size = 0;
     last_idx = 0;
-    uint8_t* gbuf = GetGlobalBuffer();
-    free(gbuf);
-    assert(gbuf == nullptr);
+    free(buffer);
+    free(new_buffer);
+    buffer = nullptr;
+    new_buffer = nullptr;
 }
+
+#endif

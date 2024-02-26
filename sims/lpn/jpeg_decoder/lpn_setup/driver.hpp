@@ -7,6 +7,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <assert.h>
+#include <cstddef>
 #include <vector>
 #include <cmath>
 #include "common.h"
@@ -31,7 +32,7 @@ static jpeg_idct       m_idct;
 static jpeg_bit_buffer m_bit_buffer;
 static jpeg_mcu_block  m_mcu_dec(&m_bit_buffer, &m_dht);
 
-static std::vector<int> mcu_cnt;
+// static std::vector<int> mcu_cnt;
 
 static uint16_t m_width = 0;
 static uint16_t m_height = 0;
@@ -43,6 +44,16 @@ static int num_tokens_for_cur_img = 0;
 uint8_t *GetMOutputR();
 uint8_t *GetMOutputG();
 uint8_t *GetMOutputB();
+static uint8_t* m_output_r = nullptr;
+static uint8_t* m_output_g = nullptr;
+static uint8_t* m_output_b = nullptr;
+
+
+static uint8_t last_b = 0;
+static uint8_t b = 0;
+static bool decode_done = false;
+static int state = 0;
+static int mcu_start = 0;
 
 bool IsCurImgFinished() {
     if (num_tokens_for_cur_img == 0){
@@ -53,23 +64,34 @@ bool IsCurImgFinished() {
 }
 
 void Reset() {
+    printf("Calling Reset to the whole LPN\n");
     m_width = 0;
     m_height = 0;
     rgb_cur_len = 0;
     rgb_consumed_len = 0;
     num_tokens_for_cur_img = 0;
-    uint8_t* m_output_r = GetMOutputR();
-    uint8_t* m_output_g = GetMOutputG();
-    uint8_t* m_output_b = GetMOutputB();
+
+    last_b = 0;
+    b = 0;
+    decode_done = false;
+    state = 0;
+    mcu_start = 0;
+
+    timestamp = 0;
+    finished = 0;
+    m_dqt.reset();
+    m_dht.reset();
+    m_idct.reset();
+    m_bit_buffer.reset();
 
     free(m_output_r);
     free(m_output_g);
     free(m_output_b);
 
-    assert(m_output_r == nullptr);
-    assert(m_output_g == nullptr);
-    assert(m_output_b == nullptr);
-    
+    m_output_r = nullptr;
+    m_output_g = nullptr;
+    m_output_b = nullptr;
+
     RollbackBufReset();
 
     ptasks.reset();
@@ -115,30 +137,27 @@ void UpdateConsumedRGBOffset(uint16_t len){
 }
 
 uint8_t *GetMOutputR(){
-    static uint8_t *m_output = nullptr;
-    if(!m_output){
-        m_output = new uint8_t[m_height * m_width];
-        memset(m_output, 0, m_height * m_width);
+    if(m_output_r==nullptr){
+        m_output_r = new uint8_t[m_height * m_width];
+        memset(m_output_r, 0, m_height * m_width);
     }
-    return m_output;
+    return m_output_r;
 }
 
 uint8_t *GetMOutputG(){
-    static uint8_t *m_output = nullptr;
-    if(!m_output){
-        m_output = new uint8_t[m_height * m_width];
-        memset(m_output, 0, m_height * m_width);
+    if(m_output_g==nullptr){
+        m_output_g = new uint8_t[m_height * m_width];
+        memset(m_output_g, 0, m_height * m_width);
     }
-    return m_output;
+    return m_output_g;
 }
 
 uint8_t *GetMOutputB(){
-    static uint8_t *m_output = nullptr;
-    if(!m_output){
-        m_output = new uint8_t[m_height * m_width];
-        memset(m_output, 0, m_height * m_width);
+    if(m_output_b==nullptr){
+        m_output_b = new uint8_t[m_height * m_width];
+        memset(m_output_b, 0, m_height * m_width);
     }
-    return m_output;
+    return m_output_b;
 }
 
 //-----------------------------------------------------------------------------
@@ -425,11 +444,6 @@ static bool DecodeImage(void)
     return true;
 }
 
-static uint8_t last_b = 0;
-static uint8_t b = 0;
-static bool decode_done = false;
-static int state = 0;
-static int mcu_start = 0;
 void writeout_img();
 
 int UpdateLpnState(uint8_t *buf, size_t len, uint64_t ts)
