@@ -23,16 +23,15 @@
  */
 #pragma once
 #include <Vjpeg_decoder.h>
-#include <string.h>
 #include <verilated.h>
 #include <verilated_vcd_c.h>
 
 #include <cstdint>
-#include <functional>
-#include <iostream>
 #include <utility>
 
-#include "axi.hh"
+#include <simbricks/rtl/axi/axi.hh>
+
+#include "mmio.hh"
 
 // interfaces with AXI4 master port that JPEG decoder block uses for DMA
 class JpegDecoderMemReader : public AXIReader {
@@ -42,27 +41,27 @@ class JpegDecoderMemReader : public AXIReader {
  public:
   explicit JpegDecoderMemReader(Vjpeg_decoder &top) {
     // set up address port
-    addrP.addr_bits = 32;
-    addrP.id_bits = 4;
+    addrP_.addr_bits = 32;
+    addrP_.id_bits = 4;
 
-    addrP.ready = &top.m_axi_arready;
-    addrP.valid = &top.m_axi_arvalid;
-    addrP.addr = &top.m_axi_araddr;
-    addrP.id = &top.m_axi_arid;
-    addrP.len = &top.m_axi_arlen;
-    addrP.size = &axi_size_;
-    addrP.burst = &top.m_axi_arburst;
+    addrP_.ready = &top.m_axi_arready;
+    addrP_.valid = &top.m_axi_arvalid;
+    addrP_.addr = &top.m_axi_araddr;
+    addrP_.id = &top.m_axi_arid;
+    addrP_.len = &top.m_axi_arlen;
+    addrP_.size = &axi_size_;
+    addrP_.burst = &top.m_axi_arburst;
 
     // set up data port
-    dataP.data_bits = 32;
-    dataP.id_bits = 4;
+    dataP_.data_bits = 32;
+    dataP_.id_bits = 4;
 
-    dataP.ready = &top.m_axi_rready;
-    dataP.valid = &top.m_axi_rvalid;
-    dataP.data = &top.m_axi_rdata;
-    dataP.resp = &top.m_axi_rresp;
-    dataP.last = &top.m_axi_rlast;
-    dataP.id = &top.m_axi_rid;
+    dataP_.ready = &top.m_axi_rready;
+    dataP_.valid = &top.m_axi_rvalid;
+    dataP_.data = &top.m_axi_rdata;
+    dataP_.resp = &top.m_axi_rresp;
+    dataP_.last = &top.m_axi_rlast;
+    dataP_.id = &top.m_axi_rid;
   }
 
  private:
@@ -77,34 +76,34 @@ class JpegDecoderMemWriter : public AXIWriter {
  public:
   explicit JpegDecoderMemWriter(Vjpeg_decoder &top) {
     // set up address port
-    addrP.addr_bits = 32;
-    addrP.id_bits = 4;
+    addrP_.addr_bits = 32;
+    addrP_.id_bits = 4;
 
-    addrP.ready = &top.m_axi_awready;
-    addrP.valid = &top.m_axi_awvalid;
-    addrP.addr = &top.m_axi_awaddr;
-    addrP.id = &top.m_axi_awid;
-    addrP.len = &top.m_axi_awlen;
-    addrP.size = &axi_size_;
-    addrP.burst = &top.m_axi_awburst;
+    addrP_.ready = &top.m_axi_awready;
+    addrP_.valid = &top.m_axi_awvalid;
+    addrP_.addr = &top.m_axi_awaddr;
+    addrP_.id = &top.m_axi_awid;
+    addrP_.len = &top.m_axi_awlen;
+    addrP_.size = &axi_size_;
+    addrP_.burst = &top.m_axi_awburst;
 
     // set up data port
-    dataP.data_bits = 32;
-    dataP.id_bits = 4;
+    dataP_.data_bits = 32;
+    dataP_.id_bits = 4;
 
-    dataP.ready = &top.m_axi_wready;
-    dataP.valid = &top.m_axi_wvalid;
-    dataP.data = &top.m_axi_wdata;
-    dataP.strb = &top.m_axi_wstrb;
-    dataP.last = &top.m_axi_wlast;
+    dataP_.ready = &top.m_axi_wready;
+    dataP_.valid = &top.m_axi_wvalid;
+    dataP_.data = &top.m_axi_wdata;
+    dataP_.strb = &top.m_axi_wstrb;
+    dataP_.last = &top.m_axi_wlast;
 
     // set up response port
-    respP.id_bits = 4;
+    respP_.id_bits = 4;
 
-    respP.ready = &top.m_axi_bready;
-    respP.valid = &top.m_axi_bvalid;
-    respP.resp = &top.m_axi_bresp;
-    respP.id = &top.m_axi_bid;
+    respP_.ready = &top.m_axi_bready;
+    respP_.valid = &top.m_axi_bvalid;
+    respP_.resp = &top.m_axi_bresp;
+    respP_.id = &top.m_axi_bid;
   }
 
  private:

@@ -30,11 +30,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
-#include <functional>
 #include <iostream>
-#include <memory>
-#include <optional>
-#include <queue>
 #include <sstream>
 #include <type_traits>
 
@@ -74,7 +70,7 @@ extern "C" void sigint_handler(int dummy) {
 }
 
 extern "C" void sigusr1_handler(int dummy) {
-  std::cerr << "cur_ts=" << cur_ts << std::endl;
+  std::cerr << "cur_ts=" << cur_ts << "\n";
 }
 
 volatile union SimbricksProtoPcieD2H *d2h_alloc(uint64_t cur_ts) {
@@ -165,7 +161,7 @@ bool h2d_read(volatile struct SimbricksProtoPcieH2DRead &read,
               uint64_t cur_ts) {
 #if DEBUG
   std::cout << "h2d_read ts=" << cur_ts << " bar=" << static_cast<int>(read.bar)
-            << " offset=" << read.offset << " len=" << read.len << std::endl;
+            << " offset=" << read.offset << " len=" << read.len << "\n";
 #endif
 
   switch (read.bar) {
@@ -204,7 +200,7 @@ bool h2d_write(volatile struct SimbricksProtoPcieH2DWrite &write,
 #if DEBUG
   std::cout << "h2d_write ts=" << cur_ts
             << " bar=" << static_cast<int>(write.bar)
-            << " offset=" << write.offset << " len=" << write.len << std::endl;
+            << " offset=" << write.offset << " len=" << write.len << "\n";
 #endif
 
   uint64_t val = 0;
@@ -333,7 +329,7 @@ int main(int argc, char **argv) {
   }
 
   bool sync = SimbricksBaseIfSyncEnabled(&pcieif.base);
-  std::cerr << "sync=" << sync << std::endl;
+  std::cerr << "sync=" << sync << "\n";
 
   signal(SIGINT, sigint_handler);
   signal(SIGUSR1, sigusr1_handler);
@@ -357,7 +353,7 @@ int main(int argc, char **argv) {
     // send required sync messages
     while (SimbricksPcieIfD2HOutSync(&pcieif, cur_ts) < 0) {
       std::cerr << "warn: SimbricksPcieIfD2HOutSync failed cur_ts=" << cur_ts
-                << std::endl;
+                << "\n";
     }
 
     // process available incoming messages for current timestamp
@@ -400,10 +396,10 @@ void JpegDecoderMemReader::doRead(JpegDecoderMemReader::AXIOperationT *axi_op) {
   std::cout << "JpegDecoderMemReader::doRead() ts=" << this->main_time
             << " addr=" << axi_op->addr << " len=" << axi_op->len
             << " off=" << axi_op->off << " step_size=" << axi_op->step_size
-            << std::endl;
+            << "\n";
 #endif
 
-  volatile union SimbricksProtoPcieD2H *msg = d2h_alloc(main_time);
+  volatile union SimbricksProtoPcieD2H *msg = d2h_alloc(main_time_);
   if (!msg)
     throw "dma read alloc failed";
 
@@ -411,7 +407,8 @@ void JpegDecoderMemReader::doRead(JpegDecoderMemReader::AXIOperationT *axi_op) {
                           sizeof(SimbricksProtoPcieH2DReadcomp);
   if (axi_op->len > max_size) {
     std::cerr << "error: read data of length " << axi_op->len
-              << " doesn't fit into a SimBricks message" << std::endl;
+              << " doesn't fit into a SimBricks message"
+              << "\n";
     throw;
   }
 
@@ -429,10 +426,10 @@ void JpegDecoderMemWriter::doWrite(
   std::cout << "JpegDecoderMemWriter::doWrite() ts=" << this->main_time
             << " addr=" << axi_op->addr << " len=" << axi_op->len
             << " off=" << axi_op->off << " step_size=" << axi_op->step_size
-            << std::endl;
+            << "\n";
 #endif
 
-  volatile union SimbricksProtoPcieD2H *msg = d2h_alloc(main_time);
+  volatile union SimbricksProtoPcieD2H *msg = d2h_alloc(main_time_);
   if (!msg)
     throw "dma read alloc failed";
 
@@ -440,7 +437,8 @@ void JpegDecoderMemWriter::doWrite(
   unsigned int max_size = SimbricksPcieIfH2DOutMsgLen(&pcieif) - sizeof(*write);
   if (axi_op->len > max_size) {
     std::cerr << "error: write data of length " << axi_op->len
-              << " doesn't fit into a SimBricks message" << std::endl;
+              << " doesn't fit into a SimBricks message"
+              << "\n";
     throw;
   }
 
@@ -456,8 +454,7 @@ void JpegDecoderMemWriter::doWrite(
 void mmio_done(MMIOOp *mmio_op, uint64_t cur_ts) {
 #if DEBUG
   std::cout << "mmio_done ts=" << cur_ts << " addr=" << mmio_op->addr
-            << " len=" << mmio_op->len << " value=" << mmio_op->value
-            << std::endl;
+            << " len=" << mmio_op->len << " value=" << mmio_op->value << "\n";
 #endif
 
   if (!mmio_op->isWrite) {

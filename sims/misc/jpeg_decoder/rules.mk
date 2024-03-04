@@ -29,22 +29,25 @@ verilator_obj_dir := $(d)obj_dir
 bin_jpeg_decoder := $(d)jpeg_decoder_verilator
 verilator_bin_jpeg_decoder := $(verilator_obj_dir)/Vjpeg_decoder
 verilator_mk_jpeg_decoder := $(verilator_bin_jpeg_decoder).mk
-srcs_jpeg_decoder := $(addprefix $(d),jpeg_decoder_verilator.cc axi.cc)
+srcs_jpeg_decoder := $(addprefix $(d),jpeg_decoder_verilator.cc mmio.cc)
 jpeg_decoder_top := $(d)rtl/src_v/jpeg_decoder.v
 jpeg_decoder_search_paths := $(addprefix $(d),rtl/src_v rtl/jpeg_core/src_v)
 
-$(verilator_mk_jpeg_decoder):
+$(verilator_mk_jpeg_decoder): $(lib_simbricks) $(lib_verilator_axi)
 	$(VERILATOR) $(VFLAGS) --cc -O3 \
 		--trace --no-trace-top --no-trace-params --trace-underscore \
-		-CFLAGS "-I$(abspath $(lib_dir)) -iquote $(abspath $(base_dir))" \
+		-CFLAGS "-I$(abspath $(lib_dir)) -iquote $(abspath $(base_dir)) -fsanitize=address -Og -g" \
+		-LDFLAGS "-fsanitize=address -static-libasan" \
 		--Mdir $(verilator_obj_dir) \
-		-LDFLAGS "-L$(abspath $(lib_dir)) -lsimbricks" \
 		--exe \
 		$(addprefix -y ,$(jpeg_decoder_search_paths)) \
 		$(jpeg_decoder_top) \
+		$(abspath $(lib_verilator_axi)) \
+		$(abspath $(lib_simbricks)) \
 		$(abspath $(srcs_jpeg_decoder))
 
-$(verilator_bin_jpeg_decoder): $(verilator_mk_jpeg_decoder) $(lib_simbricks) $(srcs_jpeg_decoder)
+$(verilator_bin_jpeg_decoder): $(verilator_mk_jpeg_decoder)  \
+		 $(srcs_jpeg_decoder)
 	$(MAKE) -C $(verilator_obj_dir) -f $(abspath $(verilator_mk_jpeg_decoder))
 
 $(bin_jpeg_decoder): $(verilator_bin_jpeg_decoder)
@@ -57,7 +60,7 @@ $(bin_jpeg_decoder): $(verilator_bin_jpeg_decoder)
 bin_jpeg_decoder_multiple2 := $(d)jpeg_decoder_multiple2_verilator
 verilator_bin_jpeg_decoder_multiple2 := $(verilator_obj_dir)/Vjpeg_decoder_multiple2
 verilator_mk_jpeg_decoder_multiple2 := $(verilator_bin_jpeg_decoder_multiple2).mk
-srcs_jpeg_decoder_multiple2 := $(addprefix $(d),jpeg_decoder_multiple2_verilator.cc axi.cc)
+srcs_jpeg_decoder_multiple2 := $(addprefix $(d),jpeg_decoder_multiple2_verilator.cc)
 
 $(verilator_mk_jpeg_decoder_multiple2):
 	$(VERILATOR) $(VFLAGS) --cc -O3 \
