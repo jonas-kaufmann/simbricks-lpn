@@ -107,6 +107,9 @@ void AXIReader::step(uint64_t cur_ts) {
     }
   } else if (!curOp_) {
     *dataP_.valid = 0;
+    *dataP_.last = 0;
+    std::memset(dataP_.data, 0, (dataP_.data_bits + 7) / 8);
+    std::memset(dataP_.id, 0, (dataP_.id_bits + 7) / 8);
   }
 }
 

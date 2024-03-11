@@ -157,13 +157,13 @@ class AXIReader {
   using AXIOperationT = AXIOperation<false>;
 
  protected:
-  uint64_t main_time_;
-  AXIChannelReadAddr addrP_;
-  AXIChannelReadData dataP_;
+  uint64_t main_time_ = 0;
+  AXIChannelReadAddr addrP_{};
+  AXIChannelReadData dataP_{};
 
-  std::deque<AXIOperationT *> pending_;
-  AXIOperationT *curOp_;
-  size_t curOff_;
+  std::deque<AXIOperationT *> pending_{};
+  AXIOperationT *curOp_ = nullptr;
+  size_t curOff_ = 0;
 
   virtual void doRead(AXIOperationT *axi_op) = 0;
 
@@ -177,16 +177,15 @@ class AXIWriter {
   using AXIOperationT = AXIOperation<true>;
 
  protected:
-  uint64_t main_time_;
-  uint64_t suspend_until_;
-  AXIChannelWriteAddr addrP_;
-  AXIChannelWriteData dataP_;
-  AXIChannelWriteResp respP_;
+  uint64_t main_time_ = 0;
+  AXIChannelWriteAddr addrP_{};
+  AXIChannelWriteData dataP_{};
+  AXIChannelWriteResp respP_{};
 
-  std::deque<AXIOperationT *> pending_;
-  std::deque<AXIOperationT *> completed_;
-  AXIOperationT *complOp_;
-  bool complWasReady_;
+  std::deque<AXIOperationT *> pending_{};
+  std::deque<AXIOperationT *> completed_{};
+  AXIOperationT *complOp_ = nullptr;
+  bool complWasReady_ = false;
 
   virtual void doWrite(AXIOperationT *axi_op) = 0;
 
