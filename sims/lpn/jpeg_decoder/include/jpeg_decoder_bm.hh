@@ -1,7 +1,5 @@
 #pragma once
 
-#include <array>
-
 #include <simbricks/pciebm/pciebm.hh>
 
 #include "jpeg_decoder_regs.hh"
@@ -40,7 +38,7 @@ struct JpegDecoderDmaReadOp : public pciebm::DMAOp {
 struct JpegDecoderDmaWriteOp : public pciebm::DMAOp {
   JpegDecoderDmaWriteOp(uint64_t dma_addr, size_t len)
       : pciebm::DMAOp{true, dma_addr, len, buffer} {
-    assert(len <= sizeof(buffer) && "len must be <= than buffer size"); 
+    assert(len <= sizeof(buffer) && "len must be <= than buffer size");
   }
   bool last_block;
   uint8_t buffer[DMA_BLOCK_SIZE];

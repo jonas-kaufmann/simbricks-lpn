@@ -4,7 +4,6 @@
 #include <bits/types/siginfo_t.h>
 #include <signal.h>
 
-#include <cmath>
 #include <cstddef>
 #include <cstdlib>
 #include <cstring>
@@ -23,19 +22,22 @@
 #define MASK5 0b11111
 #define MASK6 0b111111
 
-static JpegDecoderBm jpeg_decoder{};
+namespace {
+JpegDecoderBm jpeg_decoder{};
 
-static void sigint_handler(int dummy) {
+void sigint_handler(int dummy) {
   jpeg_decoder.SIGINTHandler();
 }
 
-static void sigusr1_handler(int dummy) {
+void sigusr1_handler(int dummy) {
   jpeg_decoder.SIGUSR1Handler();
 }
 
-static void sigusr2_handler(int dummy) {
+void sigusr2_handler(int dummy) {
   jpeg_decoder.SIGUSR2Handler();
 }
+
+}  // namespace
 
 void JpegDecoderBm::SetupIntro(struct SimbricksProtoPcieDevIntro &dev_intro) {
   dev_intro.pci_vendor_id = 0xdead;
@@ -56,12 +58,12 @@ void JpegDecoderBm::SetupIntro(struct SimbricksProtoPcieDevIntro &dev_intro) {
 void JpegDecoderBm::RegRead(uint8_t bar, uint64_t addr, void *dest,
                             size_t len) {
   if (bar != 0) {
-    std::cerr << "error: register read from unmapped BAR " << bar << std::endl;
+    std::cerr << "error: register read from unmapped BAR " << bar << "\n";
     return;
   }
   if (addr + len > sizeof(Registers_)) {
     std::cerr << "error: register read is outside bounds offset=" << addr
-              << " len=" << len << std::endl;
+              << " len=" << len << "\n";
     return;
   }
 
@@ -71,12 +73,12 @@ void JpegDecoderBm::RegRead(uint8_t bar, uint64_t addr, void *dest,
 void JpegDecoderBm::RegWrite(uint8_t bar, uint64_t addr, const void *src,
                              size_t len) {
   if (bar != 0) {
-    std::cerr << "error: register write to unmapped BAR " << bar << std::endl;
+    std::cerr << "error: register write to unmapped BAR " << bar << "\n";
     return;
   }
   if (addr + len > sizeof(Registers_)) {
     std::cerr << "error: register write is outside bounds offset=" << addr
-              << " len=" << len << std::endl;
+              << " len=" << len << "\n";
     return;
   }
 
@@ -114,7 +116,7 @@ void JpegDecoderBm::DmaComplete(std::unique_ptr<pciebm::DMAOp> dma_op) {
     uint64_t next_ts = NextCommitTime(t_list, T_SIZE);
 
 #if JPEGD_DEBUG
-    std::cerr << "next_ts=" << next_ts << " TimePs=" << TimePs() << std::endl;
+    std::cerr << "next_ts=" << next_ts << " TimePs=" << TimePs() << "\n";
 #endif
     assert(
         next_ts >= TimePs() &&
@@ -123,7 +125,7 @@ void JpegDecoderBm::DmaComplete(std::unique_ptr<pciebm::DMAOp> dma_op) {
     if (next_ts != lpn::LARGE &&
         (!next_scheduled || next_scheduled.value() > next_ts)) {
 #if JPEGD_DEBUG
-      std::cerr << "schedule next at = " << next_ts << std::endl;
+      std::cerr << "schedule next at = " << next_ts << "\n";
 #endif
       auto evt = std::make_unique<pciebm::TimedEvent>();
       evt->time = next_ts;
@@ -163,7 +165,7 @@ void JpegDecoderBm::ExecuteEvent(std::unique_ptr<pciebm::TimedEvent> evt) {
   uint64_t next_ts = NextCommitTime(t_list, T_SIZE);
 #if JPEGD_DEBUG
   std::cerr << "lpn exec: evt time=" << evt->time << " TimePs=" << TimePs()
-            << " next_ts=" << next_ts << std::endl;
+            << " next_ts=" << next_ts << "\n";
 #endif
   // only schedule an event if one doesn't exist yet
   assert(
@@ -174,14 +176,14 @@ void JpegDecoderBm::ExecuteEvent(std::unique_ptr<pciebm::TimedEvent> evt) {
 #if JPEGD_DEBUG
   if (next_scheduled) {
     std::cerr << "event scheduled next at = " << next_scheduled.value()
-              << std::endl;
+              << "\n";
   }
 #endif
 
   if (next_ts != lpn::LARGE &&
       (!next_scheduled || next_scheduled.value() > next_ts)) {
 #if JPEGD_DEBUG
-    std::cerr << "schedule next at = " << next_ts << std::endl;
+    std::cerr << "schedule next at = " << next_ts << "\n";
 #endif
 
     evt->time = next_ts;
@@ -221,7 +223,7 @@ void JpegDecoderBm::ExecuteEvent(std::unique_ptr<pciebm::TimedEvent> evt) {
       IssueDma(std::move(dma_op));
       assert(last_dma != nullptr);
     }
-    if(last_dma)
+    if (last_dma)
       last_dma->last_block = true;
     Reset();
   }
@@ -231,7 +233,7 @@ void JpegDecoderBm::DevctrlUpdate(
     struct SimbricksProtoPcieH2DDevctrl &devctrl) {
   // ignore this for now
   std::cerr << "warning: ignoring SimBricks DevCtrl message with flags "
-            << devctrl.flags << std::endl;
+            << devctrl.flags << "\n";
 }
 
 int main(int argc, char *argv[]) {
