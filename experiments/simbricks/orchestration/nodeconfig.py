@@ -878,3 +878,32 @@ class VTATest(AppConfig):
             #'python vta/tests/python/integration/test_benchmark_topi_conv2d.py'
             'python vta/tests/python/integration/test_benchmark_gemm.py'
         ]
+
+
+class VTAMatMul(AppConfig):
+
+    def __init__(self, pci_device: str) -> None:
+        super().__init__()
+        self.pci_device = pci_device
+
+    def run_cmds(self, node):
+        return [
+            'set -x',
+            (
+                'export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:'
+                '/sbin:/bin'
+            ),
+            'export HOME=/root',
+            f'export VTA_DEVICE={self.pci_device}',
+            'export VTA_RPC_HOST=127.0.0.1',
+            'export VTA_RPC_PORT=9091',
+            'cd /root/tvm/',
+            'ip link set lo up',
+            'ip addr add 127.0.0.1/8 dev lo',
+            'echo "127.0.0.1 localhost" >>/etc/hosts',
+            'export PYTHONPATH=/root/tvm/python:${PYTHONPATH}',
+            'export PYTHONPATH=/root/tvm/vta/python:${PYTHONPATH}',
+            '/usr/bin/python3 -m vta.exec.rpc_server --host=${VTA_RPC_HOST} --port=${VTA_RPC_PORT} &',
+            'sleep 5',
+            'python vta/tutorials/optimize/matrix_multiply_opt.py'
+        ]

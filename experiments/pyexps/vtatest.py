@@ -26,19 +26,24 @@ import simbricks.orchestration.simulators as sim
 
 experiments = []
 
-for h in ['qk', 'qt']:
+for h in ['qk', 'qt', 'gk', 'gt']:
     e = exp.Experiment('vtatest-' + h)
     e.checkpoint = False
 
     node_config = node.LinuxVTANode()
-    node_config.app = node.VTATest()
-    node_config.cores = 1
-    node_config.app.is_sleep = 1
+    node_config.app = node.VTAMatMul('0000:00:02.0')
 
     if h == 'gk':
+        node_config.app.pci_device = '0000:00:00.0'
+        node_config.cores = 4
         host = sim.Gem5Host(node_config)
         host.cpu_type = 'X86KvmCPU'
+    elif h == 'gt':
+        e.checkpoint = True
+        node_config.app.pci_device = '0000:00:00.0'
+        host = sim.Gem5Host(node_config)
     elif h == 'qk':
+        node_config.cores = 4
         host = sim.QemuHost(node_config)
     elif h == 'qt':
         host = sim.QemuHost(node_config)
@@ -52,5 +57,7 @@ for h in ['qk', 'qt']:
     e.add_pcidev(vta)
 
     host.add_pcidev(vta)
+
+    vta.pci_latency = vta.sync_period = host.pci_latency = host.sync_period = 1000
 
     experiments.append(e)
