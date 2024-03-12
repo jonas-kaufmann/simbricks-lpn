@@ -1,4 +1,5 @@
-#!/bin/bash -eux
+#!/bin/bash
+set -eux
 
 apt-get update
 apt-get -y install \
@@ -30,7 +31,7 @@ apt-get -y install \
 
 
 export TVM_HOME=/root/tvm
-export PYTHONPATH=$TVM_HOME/python:$TVM_HOME/vta/python:$PYTHONPATH
+export PYTHONPATH=$TVM_HOME/python:$TVM_HOME/vta/python
 export VTA_HW_PATH=$TVM_HOME/3rdparty/vta-hw
 
 
