@@ -36,7 +36,7 @@ export VTA_HW_PATH=$TVM_HOME/3rdparty/vta-hw
 
 
 mkdir -p /root
-git clone --recursive --branch simbricks https://github.com/simbricks/tvm-simbricks /root/tvm
+git clone --recursive --branch lpn https://github.com/jonas-kaufmann/tvm-simbricks.git /root/tvm
 cd /root/tvm
 cp 3rdparty/vta-hw/config/simbricks_pci_sample.json 3rdparty/vta-hw/config/vta_config.json
 mkdir build
