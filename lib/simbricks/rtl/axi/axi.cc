@@ -116,11 +116,14 @@ void AXIReader::step(uint64_t cur_ts) {
 void AXIReader::readDone(AXIOperationT *axi_op) {
 #if AXI_DEBUG
   std::cerr << main_time_ << " AXI R: enqueue op=" << axi_op << "\n";
-  std::cerr << "    ";
-  for (size_t i = 0; i < axi_op->len; i++) {
-    std::cerr << static_cast<unsigned>(axi_op->buf[i]) << " ";
+  std::cerr << "    " << std::hex;
+  for (size_t i = 0; i < axi_op->len; i += sizeof(uint64_t)) {
+    uint64_t dbg_value = 0;
+    std::memcpy(&dbg_value, axi_op->buf + i,
+                std::min(sizeof(uint64_t), axi_op->len - i));
+    std::cerr << dbg_value << " ";
   }
-  std::cerr << "\n";
+  std::cerr << "\n" << std::dec;
 #endif
   pending_.push_back(axi_op);
 }
@@ -161,8 +164,8 @@ void AXIWriter::step(uint64_t cur_ts) {
 
     uint64_t step_size = pow2(*addrP_.size);
     assert(*addrP_.burst == 1 && "we currently only support INCR bursts");
-    AXIOperationT *axi_op =
-        new AXIOperationT(addr, step_size * (*addrP_.len + 1), axi_id, step_size, this);
+    AXIOperationT *axi_op = new AXIOperationT(
+        addr, step_size * (*addrP_.len + 1), axi_id, step_size, this);
 #if AXI_DEBUG
     std::cerr << main_time_ << " AXI W: new op=" << axi_op
               << " addr=" << axi_op->addr << " len=" << axi_op->len
