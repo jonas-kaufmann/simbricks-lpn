@@ -859,12 +859,19 @@ class LinuxVTANode(NodeConfig):
 
 class VTATest(AppConfig):
 
+    def __init__(self, pci_device: str) -> None:
+        super().__init__()
+        self.pci_device = pci_device
+
     def run_cmds(self, node):
         return [
             'set -x',
-            ('export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:'
-                '/sbin:/bin'),
+            (
+                'export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:'
+                '/sbin:/bin'
+            ),
             'export HOME=/root',
+            f'export VTA_DEVICE={self.pci_device}',
             'cd /root/tvm/',
             'ip link set lo up',
             'ip addr add 127.0.0.1/8 dev lo',
