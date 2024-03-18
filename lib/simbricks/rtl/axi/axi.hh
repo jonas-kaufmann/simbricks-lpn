@@ -170,6 +170,7 @@ class AXIReader {
  public:
   void readDone(AXIOperationT *axi_op);
   void step(uint64_t cur_ts);
+  void step_apply();
 };
 
 class AXIWriter {
@@ -192,6 +193,7 @@ class AXIWriter {
  public:
   void writeDone(AXIOperationT *axi_op);
   void step(uint64_t cur_ts);
+  void step_apply();
 };
 
 #endif
