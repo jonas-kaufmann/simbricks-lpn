@@ -96,7 +96,7 @@ int main(int argc, char *argv[]) {
     if (!jpeg_decoder_regs.isBusy) {
       break;
     }
-    std::this_thread::sleep_for(std::chrono::microseconds{1});
+    // std::this_thread::sleep_for(std::chrono::microseconds{1});
   }
 
   // report duration

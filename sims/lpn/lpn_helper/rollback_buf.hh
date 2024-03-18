@@ -30,7 +30,7 @@ uint8_t* GetNewBuffer() {
 uint8_t* AugmentBufWithLast(uint8_t* buf, size_t& len){
     uint8_t* last_buf = GetGlobalBuffer();
     if(last_buf_size == 0) return buf;
-    assert(len < sizeof(uint8_t) * BUF_SIZE && "AugmentBufWithLast() new data doesn't fit in buffer");
+    assert(len + last_buf_size < sizeof(uint8_t) * BUF_SIZE && "AugmentBufWithLast() new data doesn't fit in buffer");
     dprintf(" alloc new buf with size %zu \n", len);
     uint8_t* new_buf = GetNewBuffer();
     for(int i = 0; i < last_buf_size; i++){

@@ -28,7 +28,10 @@ public:
         reset();
     }
 
-    void reset(void) { }
+    void reset(void) { 
+        global_buf_idx = 0;
+        global_buf = NULL;
+    }
 
     //-----------------------------------------------------------------------------
     // decode: Run huffman entropy decoder on input stream, expand to DC + upto 

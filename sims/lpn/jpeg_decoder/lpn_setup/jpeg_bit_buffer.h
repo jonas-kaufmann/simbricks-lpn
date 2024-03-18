@@ -24,11 +24,11 @@ class jpeg_bit_buffer
 {
 public:
     
-    size_t global_buf_idx = 0;
+    int global_buf_idx = 0;
     size_t global_buf_len = 0;
     uint8_t* global_buf = NULL;
     uint8_t global_m_last = 0;
-    size_t global_m_rd_offset = 0;
+    int global_m_rd_offset = 0;
     int last_detect_marker = 0;
     int last_is_padding = 0;
     int marker_detected = 0;
@@ -47,14 +47,26 @@ public:
             delete [] m_buffer;
             m_buffer = NULL;
         }
+        
+        if(max_size == -1){
+            global_m_last = 0;
+            global_buf_idx = 0;
+            global_buf_len = 0;
+            global_buf = NULL;
+            global_m_last = 0;
+            global_m_rd_offset = 0;
+            last_detect_marker = 0;
+            last_is_padding = 0;
+            marker_detected = 0;
+        }
 
         if (max_size <= 0)
             m_max_size = 1 << 20;
         else
             m_max_size = max_size;
 
-        m_buffer = new uint8_t[m_max_size];
-        memset(m_buffer, 0, m_max_size);
+        m_buffer = new uint8_t[m_max_size+4];
+        memset(m_buffer, 0, m_max_size+4);
         m_wr_offset = 0;
         m_last      = global_m_last;
         m_rd_offset = global_m_rd_offset;
@@ -70,11 +82,11 @@ public:
         uint8_t last = m_last;
         last_is_padding=0;
         // Skip padding
-        if (last == 0xFF && b == 0x00 && m_wr_offset >= (last_detect_marker-global_buf_idx)){
+        if (last == 0xFF && b == 0x00 && (last_detect_marker == 0 || m_wr_offset >= (last_detect_marker-global_buf_idx))){
             last_is_padding=1;
         }
         // Marker found
-        else if (last == 0xFF && b != 0x00 && m_wr_offset >= (last_detect_marker-global_buf_idx))
+        else if (last == 0xFF && b != 0x00 && (last_detect_marker == 0 || m_wr_offset >= (last_detect_marker-global_buf_idx)))
         {
             m_wr_offset--;
             marker_detected = 1;
@@ -112,6 +124,7 @@ public:
         int byte   = m_rd_offset / 8;
         int bit    = m_rd_offset % 8; // 0 - 7
         uint64_t w = 0;
+        // it's reading 5 bytes, why ? because it wants to read 32bit, while the first bit maybe not be aligned
         for (int x=0;x<5;x++)
         {
             w |= m_buffer[byte+x];

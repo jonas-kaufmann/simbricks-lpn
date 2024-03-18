@@ -40,6 +40,11 @@ static uint16_t rgb_cur_len = 0;
 static uint16_t rgb_consumed_len = 0;
 static int num_tokens_for_cur_img = 0;
 
+static int16_t CH_dc_coeff_Y = 0;
+static int16_t CH_dc_coeff_Cb= 0;
+static int16_t CH_dc_coeff_Cr= 0;
+static int block_num = 0;
+static int loop = 0;
 
 uint8_t *GetMOutputR();
 uint8_t *GetMOutputG();
@@ -55,11 +60,15 @@ static bool decode_done = false;
 static int state = 0;
 static int mcu_start = 0;
 
+size_t GetSizeOfRGB();
+size_t GetCurRGBOffset();
+size_t GetConsumedRGBOffset();
+
 bool IsCurImgFinished() {
     if (num_tokens_for_cur_img == 0){
         return false;
     }
-    dprintf("Pdone tokens %d should reach %d \n", pdone.tokensLen(), num_tokens_for_cur_img);
+    printf("Pdone tokens %d should reach %d \n", pdone.tokensLen(), num_tokens_for_cur_img);
     return pdone.tokensLen() == num_tokens_for_cur_img;
 }
 
@@ -77,12 +86,19 @@ void Reset() {
     state = 0;
     mcu_start = 0;
 
+    CH_dc_coeff_Y = 0;
+    CH_dc_coeff_Cb= 0;
+    CH_dc_coeff_Cr= 0;
+    block_num = 0;
+    loop = 0;
+
     timestamp = 0;
     finished = 0;
     m_dqt.reset();
     m_dht.reset();
     m_idct.reset();
     m_bit_buffer.reset();
+    m_mcu_dec.reset();
 
     free(m_output_r);
     free(m_output_g);
@@ -120,11 +136,12 @@ static uint8_t m_dqt_table[3];
 #define ddprintf_blk(_name, _arr, _max) for (int __i=0;__i<_max;__i++) { ddprintf("%s: %d -> %d\n", _name, __i, _arr[__i]); }
 
 size_t GetSizeOfRGB(){
-    return m_height * m_width;
+    return int(std::ceil(m_height/8.0) * std::ceil(m_width/8.0)*64);
 }
 
 size_t GetCurRGBOffset(){
-    return rgb_cur_len;
+    return pdone.tokensLen()*64;
+    // return rgb_cur_len;
     // return m_height * m_width;
 }
 
@@ -194,7 +211,8 @@ static void ConvertYUV2RGB(int block_num, int *y, int *cb, int *cr)
             int _x = x_start + (i % 8);
             int _y = y_start + (i / 8);
             int offset = (_y * m_width) + _x;
-            rgb_cur_len = offset+1;
+            // rgb_cur_len = offset+1;
+            // rgb_cur_len += 1;
             ddprintf("RGB: r=%d g=%d b=%d -> %d\n", r, g, b, offset);
            
             m_output_r[offset] = r;
@@ -218,7 +236,8 @@ static void ConvertYUV2RGB(int block_num, int *y, int *cb, int *cr)
             int _x = x_start + (i % 8);
             int _y = y_start + (i / 8);
             int offset = (_y * m_width) + _x;
-            rgb_cur_len = offset+1;
+            // rgb_cur_len = offset+1;
+            // rgb_cur_len += 1;
 
             if (_x < m_width && _y < m_height)
             {
@@ -236,10 +255,6 @@ static void ConvertYUV2RGB(int block_num, int *y, int *cb, int *cr)
 //-----------------------------------------------------------------------------
 static bool DecodeImage(void)
 {
-    static int16_t CH_dc_coeff_Y = 0;
-    static int16_t CH_dc_coeff_Cb= 0;
-    static int16_t CH_dc_coeff_Cr= 0;
-
     int16_t dc_coeff_Y = 0;
     int16_t dc_coeff_Cb= 0;
     int16_t dc_coeff_Cr= 0;
@@ -255,8 +270,6 @@ static bool DecodeImage(void)
     dc_coeff_Cb = CH_dc_coeff_Cb;
     dc_coeff_Cr = CH_dc_coeff_Cr;
 
-    static int block_num = 0;
-    static int loop = 0;
     int count_6[6] = {0};
     while (!m_bit_buffer.eof())
     // while (1)
@@ -273,8 +286,11 @@ static bool DecodeImage(void)
             m_bit_buffer.global_m_rd_offset = (m_bit_buffer.m_rd_offset)%8;
             if( m_bit_buffer.global_buf_idx + m_bit_buffer.m_rd_offset/8 - 1 < 0){
                 m_bit_buffer.global_m_last = 0;
-                assert(0);
+                // assert(0);
             }else{
+                // m_last is the last byte read
+                // printf("global_buf_idx %d, m_rd_offset %d\n", m_bit_buffer.global_buf_idx, m_bit_buffer.m_rd_offset);
+                // assert( (m_bit_buffer.global_buf_idx + m_bit_buffer.m_rd_offset/8-1) < m_bit_buffer.global_buf_len+5 );
                 m_bit_buffer.global_m_last = m_bit_buffer.global_buf[m_bit_buffer.global_buf_idx + m_bit_buffer.m_rd_offset/8-1];
                 if (m_bit_buffer.global_m_last == 0xFF)
                     m_bit_buffer.global_m_last = 0;
@@ -451,7 +467,7 @@ int UpdateLpnState(uint8_t *buf, size_t len, uint64_t ts)
     timestamp = ts;
     buf = AugmentBufWithLast(buf, len);
 
-    ddprintf("update lpn state with bytes of length %d\n", len);
+    dprintf("update lpn state with bytes of length %d\n", len);
     for (int i=0;i<len;)
     {
         // i always points to next unaccessed slots
@@ -492,7 +508,9 @@ int UpdateLpnState(uint8_t *buf, size_t len, uint64_t ts)
             // Image width in pixels
             get_word(m_width, buf, i);
             
-            num_tokens_for_cur_img = int(std::ceil(m_width/8.0)*std::ceil(m_height/8.0));
+            // num_tokens_for_cur_img = int(std::ceil(m_width/8.0)*std::ceil(m_height/8.0));
+            // this calculation is buggy
+            num_tokens_for_cur_img = std::ceil(m_width/8.0)*std::ceil(m_height/8.0);
 
 
             GetMOutputR();
@@ -668,8 +686,10 @@ int UpdateLpnState(uint8_t *buf, size_t len, uint64_t ts)
             }
             if (mcu_start == 0){
                 m_bit_buffer.copy_out(buf);
+                len = m_bit_buffer.global_buf_len;
             }else{
                 m_bit_buffer.copy_out(buf);
+                len = m_bit_buffer.global_buf_len;
             }
             ddprintf("decode img\n");
             decode_done = DecodeImage();

@@ -122,7 +122,11 @@ for host_var in ['gem5_kvm', 'gem5_timing', 'qemu_icount', 'qemu_kvm']:
         node_cfg.memory = 2 * 1024
         node_cfg.app = JpegDecoderWorkload(
             '0000:00:00.0',
-            sorted(glob.glob('../sims/misc/jpeg_decoder/test_img/420/*.jpg')),
+            sorted(glob.glob('../sims/misc/jpeg_decoder/test_img/420/medium.jpg')),
+            # [
+                # '../sims/misc/jpeg_decoder/test_img/420/23.jpg',
+                # '../sims/misc/jpeg_decoder/test_img/420/52.jpg'
+            # ],
             dma_src,
             dma_dst,
             False
@@ -160,6 +164,6 @@ for host_var in ['gem5_kvm', 'gem5_timing', 'qemu_icount', 'qemu_kvm']:
         # With more than 2000 ns, the the lower half of the decoded image is
         # somehow missing for QEMU KVM.
         host.pci_latency = host.sync_period = jpeg_dev.pci_latency = \
-            jpeg_dev.sync_period = 1000
+            jpeg_dev.sync_period = 250
 
         experiments.append(e)

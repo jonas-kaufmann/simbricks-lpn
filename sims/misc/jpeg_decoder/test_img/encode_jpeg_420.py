@@ -16,7 +16,7 @@ for file_name in os.listdir(source_folder):
             # Getting image dimensions
             width, height = img.size
             dimension_product = width * height
-
+            img = img.crop((0, 0, 8, 8))
             # Saving the image with specified parameters
             destination_path = os.path.join(destination_folder, file_name)
             img.save(destination_path, 'JPEG', quality=90, optimize=False, progressive=False, subsampling='4:2:0')
