@@ -1077,3 +1077,21 @@ class VTADev(PCIDevSim):
             f' {env.dev_pci_path(self)} {env.dev_shm_path(self)}'
         )
         return cmd
+
+class VTALpnBmDev(PCIDevSim):
+    """Behavioral model of the VTA based on a Latency Petri Net."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.start_tick = 0
+        self.name = 'vta_lpn_bm'
+
+    def resreq_mem(self) -> int:
+        return 512  # this is a guess
+
+    def run_cmd(self, env: ExpEnv) -> str:
+        return (
+            f'{env.repodir}/sims/lpn/vta/vta_bm '
+            f'{env.dev_pci_path(self)} {env.dev_shm_path(self)} '
+            f'{self.start_tick} {self.sync_period} {self.pci_latency} '
+        )

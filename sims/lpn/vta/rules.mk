@@ -22,8 +22,22 @@
 
 include mk/subdir_pre.mk
 
-$(eval $(call subdir,lpn_common))
-$(eval $(call subdir,jpeg_decoder))
-$(eval $(call subdir,vta))
+# vta behavioral model
+bin_vta_bm := $(d)vta_bm
+
+bm_objs := $(addprefix $(d), vta_bm.o)
+bm_objs += $(addprefix $(d), src/func_sim.o)
+bm_objs += $(addprefix $(d), src/lpn_req_map.o)
+
+
+
+# $(bin_vta_bm): CPPFLAGS += -fsanitize=address -g
+# $(bin_vta_bm): LDFLAGS += -fsanitize=address -static-libasan
+$(bin_vta_bm):$(bm_objs) $(lib_pciebm) $(lib_pcie) $(lib_base) \
+	$(lib_lpnsim)
+
+CLEAN := $(bin_vta_bm) $(bm_objs)
+
+ALL := $(bin_vta_bm)
 
 include mk/subdir_post.mk
