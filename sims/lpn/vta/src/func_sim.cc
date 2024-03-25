@@ -173,7 +173,7 @@ class SRAM {
         req->id = LOAD_ID;
         req->rw = READ_REQ;
         req->len = incr;
-        //std::cerr << "enq Load request " << req->addr << " " << req->len << std::endl;
+        std::cerr << "enq Load request " << req->addr << " " << req->len << std::endl;
         enqueueReq<DramReq>(dram_req_map[LOAD_ID], req);
         return 1;
     }
