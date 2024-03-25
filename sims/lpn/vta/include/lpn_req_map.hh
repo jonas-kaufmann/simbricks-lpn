@@ -3,10 +3,12 @@
 
 #include <bits/stdint-uintn.h>
 #include <cstring>
+#include <iostream>
 #include <memory>
 #include <vector>
 #include <map>
 #include <queue>
+#include <assert.h>
 
 typedef struct LpnReq{
     uint32_t id;
@@ -22,7 +24,7 @@ typedef struct DramReq{
     uint64_t addr;
     uint32_t len;
     uint32_t acquired_len;
-    bool started;
+    bool inflight;
     bool rw;
 } DramReq;
 
@@ -80,6 +82,7 @@ public:
             // Not enough space, so switch buffers
             int newBuffer = 1 - currentBuffer_;
             memcpy(buffers_[newBuffer], buffers_[currentBuffer_] + readPtr_, dataLen_); // Copy existing valid data to new buffer
+            assert( dataLen_+len <= bufferSize_);
             memcpy(buffers_[newBuffer] + dataLen_, data, len); // Append new data
             currentBuffer_ = newBuffer;
             readPtr_ = 0; // Reset read pointer
@@ -94,6 +97,8 @@ public:
     void pop(size_t len) {
         // Adjust read pointer and data length without moving data
         size_t popLength = std::min(len, dataLen_);
+        // Clear popped data (optional)
+        // memset(buffers_[currentBuffer_] + readPtr_, 0, popLength); 
         readPtr_ += popLength;
         dataLen_ -= popLength;
         
@@ -108,6 +113,8 @@ public:
     }
 
     void setLength(size_t len) {
+        // Check if there is enough space in the buffer
+        assert(readPtr_+dataLen_ <= bufferSize_); 
         dataLen_ = len;
     }
 };

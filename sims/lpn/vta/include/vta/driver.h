@@ -39,6 +39,7 @@ extern "C" {
 #define LOAD_INT8_ID 0
 #define STORE_ID 1
 #define LOAD_INSN 2
+#define LOAD_ID 3
 
 #include <stdint.h>
 #include <stdlib.h>

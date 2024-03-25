@@ -27,8 +27,8 @@ class VTABm : public pciebm::PcieBM {
 
 template <uint64_t BufferLen>
 struct VTADmaReadOp : public pciebm::DMAOp {
-  VTADmaReadOp(uint64_t dma_addr, size_t len)
-      : pciebm::DMAOp{false, dma_addr, len, buffer_} {
+  VTADmaReadOp(uint64_t dma_addr, size_t len, uint32_t tag=0)
+      : pciebm::DMAOp{tag, false, dma_addr, len, buffer_} {
   }
 
  private:
@@ -36,8 +36,8 @@ struct VTADmaReadOp : public pciebm::DMAOp {
 };
 
 struct VTADmaWriteOp : public pciebm::DMAOp {
-  VTADmaWriteOp(uint64_t dma_addr, size_t len)
-      : pciebm::DMAOp{true, dma_addr, len, buffer} {
+  VTADmaWriteOp(uint64_t dma_addr, size_t len, uint32_t tag=0)
+      : pciebm::DMAOp{tag, true, dma_addr, len, buffer} {
     assert(len <= sizeof(buffer) && "len must be <= than buffer size");
   }
   bool last_block;

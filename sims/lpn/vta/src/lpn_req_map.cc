@@ -14,7 +14,7 @@ void setupReqQueues(const std::vector<int>& ids) {
 
 void setupBufferMap(const std::vector<int>& ids) {
     for (int id : ids) {
-        read_buffer_map[id] = std::make_unique<FixedDoubleBuffer>(10240);
-        write_buffer_map[id] = std::make_unique<FixedDoubleBuffer>(10240);
+        read_buffer_map[id] = std::make_unique<FixedDoubleBuffer>(1024*300);
+        write_buffer_map[id] = std::make_unique<FixedDoubleBuffer>(1024*300);
     }
 }

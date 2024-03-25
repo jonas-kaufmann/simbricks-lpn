@@ -41,6 +41,7 @@ extern "C" {
 namespace pciebm {
 
 struct DMAOp {
+  uint32_t tag;
   bool write;
   uint64_t dma_addr;
   size_t len;

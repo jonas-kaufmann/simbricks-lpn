@@ -154,13 +154,38 @@ class SRAM {
     return &(data_[index]);
   }
   // Execute the load instruction on this SRAM
-  void Load(const VTAMemInsn* op,
+  int Load(const VTAMemInsn* op,
             uint64_t* load_counter,
             bool skip_exec) {
     load_counter[0] += (op->x_size * op->y_size) * kElemBytes;
-    if (skip_exec) return;
+    if (skip_exec) return 0;
     DType* sram_ptr = data_ + op->sram_base;
     uint8_t* dram_ptr = reinterpret_cast<uint8_t*>(op->dram_base * kElemBytes);
+    auto& front = frontReq<DramReq>(dram_req_map[LOAD_ID]);
+    if(front == nullptr || front->addr != (uint64_t) dram_ptr){
+        int incr = 0;
+        for (uint32_t y = 0; y < op->y_size; ++y) {
+          incr += kElemBytes * op->x_stride;
+        }        
+
+        auto req = std::make_unique<DramReq>();
+        req->addr = (uint64_t)dram_ptr;
+        req->id = LOAD_ID;
+        req->rw = READ_REQ;
+        req->len = incr;
+        //std::cerr << "enq Load request " << req->addr << " " << req->len << std::endl;
+        enqueueReq<DramReq>(dram_req_map[LOAD_ID], req);
+        return 1;
+    }
+    
+    if(front->acquired_len < front->len){
+        return 1;        
+    }
+    
+    dequeueReq<DramReq>(dram_req_map[LOAD_ID]);
+    //std::cerr << "LOAD finished with len " << front->acquired_len << std::endl;
+    dram_ptr = read_buffer_map[LOAD_ID]->getHead();
+
     uint64_t xtotal = op->x_size + op->x_pad_0 + op->x_pad_1;
     uint32_t ytotal = op->y_size + op->y_pad_0 + op->y_pad_1;
     uint64_t sram_end = op->sram_base + xtotal * ytotal;
@@ -171,17 +196,24 @@ class SRAM {
     for (uint32_t y = 0; y < op->y_size; ++y) {
       memset(sram_ptr, 0, kElemBytes * op->x_pad_0);
       sram_ptr += op->x_pad_0;
+      // memcpy(sram_ptr, dram_ptr, kElemBytes * op->x_size);
       memcpy(sram_ptr, dram_ptr, kElemBytes * op->x_size);
       sram_ptr += op->x_size;
       memset(sram_ptr, 0, kElemBytes * op->x_pad_1);
       sram_ptr += op->x_pad_1;
       dram_ptr += kElemBytes * op->x_stride;
     }
+    int incr = dram_ptr-read_buffer_map[LOAD_ID]->getHead();
+    //std::cerr << "incr " << incr <<" acquired " << front->acquired_len << std::endl;
+    assert(incr <= front->acquired_len);
+    //std::cerr << "LOAD succeeds " << std::endl;
+    read_buffer_map[LOAD_ID]->pop(front->acquired_len);
     memset(sram_ptr, 0, kElemBytes * xtotal * op->y_pad_1);
+    return 0;
   }
 
   // This is for load 8bits to ACC only
-  void Load_int8(const VTAMemInsn* op,
+  int Load_int8(const VTAMemInsn* op,
             uint64_t* load_counter,
             bool skip_exec) {
     CHECK_EQ(kBits, VTA_ACC_WIDTH);
@@ -192,39 +224,47 @@ class SRAM {
 
     int factor = VTA_ACC_WIDTH / VTA_INP_WIDTH;
     load_counter[0] += (op->x_size * op->y_size) * kElemBytes;
-    if (skip_exec) return;
+    if (skip_exec) return 0;
     DType* sram_ptr = data_ + op->sram_base;
-    // int8_t* dram_ptr = static_cast<int8_t*>(dram->GetAddr(
-        // op->dram_base * kElemBytes / factor));
+    // int8_t* dram_ptr = static_cast<int8_t*>(dram->GetAddr(op->dram_base * kElemBytes / factor));
     int8_t* dram_ptr = reinterpret_cast<int8_t*>(op->dram_base * kElemBytes / factor);
-    if(frontReq(dram_req_map[LOAD_INT8_ID]) == nullptr || frontReq(dram_req_map[LOAD_INT8_ID])->addr != (uint64_t) dram_ptr){
+    auto& front = frontReq<DramReq>(dram_req_map[LOAD_INT8_ID]);
+    if(front == nullptr || front->addr != (uint64_t) dram_ptr){
+        auto incr = 0;
+        for (uint32_t y = 0; y < op->y_size; ++y) {
+          // dram one element is 1 bytes rather than 4 bytes
+          incr += kElemBytes / factor * op->x_stride;
+        }
         auto req = std::make_unique<DramReq>();
         req->addr = (uint64_t)dram_ptr;
-        req->id = 0;
-        req->len = op->x_size * VTA_BATCH * VTA_BLOCK_OUT;
+        req->id = LOAD_INT8_ID;
+        req->len = incr;
         enqueueReq<DramReq>(dram_req_map[LOAD_INT8_ID], req);
-        return;
+        return 1;
     }
+    
+    if(front->acquired_len < front->len){
+        return 1;        
+    }
+    dequeueReq<DramReq>(dram_req_map[LOAD_INT8_ID]);
+
     uint64_t xtotal = op->x_size + op->x_pad_0 + op->x_pad_1;
     uint32_t ytotal = op->y_size + op->y_pad_0 + op->y_pad_1;
     uint64_t sram_end = op->sram_base + xtotal * ytotal;
     CHECK_LE(sram_end, kMaxNumElem);
+
     memset(sram_ptr, 0, kElemBytes * xtotal * op->y_pad_0);
     sram_ptr += xtotal * op->y_pad_0;
 
-    if(op->x_size * VTA_BATCH * VTA_BLOCK_OUT > read_buffer_map[LOAD_INT8_ID]->getLength()){
-      return;
-    }
-
+    dram_ptr = (int8_t*)read_buffer_map[LOAD_INT8_ID]->getHead();
     for (uint32_t y = 0; y < op->y_size; ++y) {
       memset(sram_ptr, 0, kElemBytes * op->x_pad_0);
       sram_ptr += op->x_pad_0;
 
       int32_t* sram_ele_ptr = (int32_t*)sram_ptr;
       for (uint32_t x = 0; x < op->x_size * VTA_BATCH * VTA_BLOCK_OUT; ++x) {
-        // *(sram_ele_ptr + x) = (int32_t)*(dram_ptr + x);
+        *(sram_ele_ptr + x) = (int32_t)*(dram_ptr + x);
         // this don't work, because read_buffer_map is uint8_t, and returning int32_t
-        *(sram_ele_ptr + x) = (int32_t)*(read_buffer_map[LOAD_INT8_ID]->getHead() + x);
       }
       sram_ptr += op->x_size;
 
@@ -234,28 +274,47 @@ class SRAM {
       // dram one element is 1 bytes rather than 4 bytes
       dram_ptr += kElemBytes / factor * op->x_stride;
     }
+    uint64_t incr = (uint8_t*)dram_ptr-read_buffer_map[LOAD_ID]->getHead();
+    assert(incr <= front->acquired_len);
+    read_buffer_map[LOAD_INT8_ID]->pop(front->acquired_len);
     memset(sram_ptr, 0, kElemBytes * xtotal * op->y_pad_1);
+    return 0;
   }
 
 
   // Execute the store instruction on this SRAM apply trucation.
   // This relies on the elements is 32 bits
   template<int target_bits>
-  void TruncStore(const VTAMemInsn* op) {
+  int TruncStore(const VTAMemInsn* op) {
     CHECK_EQ(op->x_pad_0, 0);
     CHECK_EQ(op->x_pad_1, 0);
     CHECK_EQ(op->y_pad_0, 0);
     CHECK_EQ(op->y_pad_1, 0);
     int target_width = (target_bits * kLane + 7) / 8;
-    BitPacker<kBits> src(data_ + op->sram_base);
     // BitPacker<target_bits> dst(dram->GetAddr(op->dram_base * target_width));
     uint64_t req_addr = op->dram_base * target_width;
+    auto& front = frontReq(dram_req_map[STORE_ID]); 
+    if(front != nullptr && front->addr == (uint64_t) (req_addr)){
+        // write request has been made
+        // just wait for it to finish
+        if(front->acquired_len == front->len) {
+          dequeueReq(dram_req_map[STORE_ID]);
+          //std::cerr << "STORE finished" << std::endl;
+          return 0;
+        }else{
+          return 1;
+        } 
+    }
+    BitPacker<kBits> src(data_ + op->sram_base);
+
     auto req = std::make_unique<DramReq>();
     req->addr = req_addr;
     req->id = STORE_ID;
-    req->len = (op->y_size * op->x_stride + op->x_size) * kLane;
+    req->len = ((op->y_size-1) * op->x_stride + op->x_size-1) * kLane + kLane;
     req->rw = WRITE_REQ;
     BitPacker<target_bits> dst(write_buffer_map[STORE_ID]->getHead());
+    uint8_t* head = write_buffer_map[STORE_ID]->getHead();
+    int cnt = 0;
     for (uint32_t y = 0; y < op->y_size; ++y) {
       for (uint32_t x = 0; x < op->x_size; ++x) {
         uint32_t sram_base = y * op->x_size + x;
@@ -263,10 +322,21 @@ class SRAM {
         for (int i = 0; i < kLane; ++i) {
           dst.SetSigned(dram_base * kLane + i,
                         src.GetSigned(sram_base * kLane +i));
+          // //std::cerr<< dst.GetSigned(dram_base * kLane + i) << std::endl;
+          // //std::cerr<< (uint32_t)head[dram_base * kLane + i] << std::endl;
+          assert(dst.GetSigned(dram_base * kLane + i) == (uint32_t)head[dram_base * kLane + i]);
+          // //std::cerr << " y_size" << op->y_size << " x_size" << op->x_size << " x_stride" << op->x_stride << " kLane" << kLane << " sram_base" << sram_base * kLane + i << "index" << dram_base * kLane + i << std::endl; 
+          cnt++;
         }
       }
     }
+
+
+    assert( ("len mismatch %d %d\n", req->len, cnt) && req->len == cnt );
     write_buffer_map[STORE_ID]->setLength(req->len);
+    //std::cerr << "enq store request " << req->addr << " " << req->len << " target_bits=" << target_bits << " target_width="<< target_width << " KLane=" << kLane<< std::endl;
+    enqueueReq<DramReq>(dram_req_map[STORE_ID], req);
+    return 1;
   }
 
  private:
@@ -345,7 +415,7 @@ class Device {
   int Run(vta_phy_addr_t insn_phy_addr,
           uint32_t insn_count,
           uint32_t wait_cycles) {
-
+    static uint32_t insn_holder = 0;
     auto& front = frontReq<DramReq>(dram_req_map[LOAD_INSN]);
     if (front == nullptr) {
       auto req = std::make_unique<DramReq>();
@@ -354,21 +424,43 @@ class Device {
       req->len = insn_count * sizeof(VTAGenericInsn);
       req->rw = READ_REQ;
       enqueueReq<DramReq>(dram_req_map[LOAD_INSN], req);
-      return 0;
+      return 1;
     }
-    if (front->len == front->acquired_len){
-      dequeueReq<DramReq>(dram_req_map[LOAD_INSN]);
-      std::cerr << "LOAD_INSN finished" << std::endl;
-      std::cerr << "fecthed length " << front->acquired_len << std::endl;
-      std::cerr << "insn count " << insn_count << std::endl;
-      auto head = read_buffer_map[LOAD_INSN]->getHead();
-      VTAGenericInsn* insn = reinterpret_cast<VTAGenericInsn*>(head);
-
-      for (uint32_t i = 0; i < insn_count; ++i) {
-        // this->Run(insn + i);
-        vta::sim::Device::Run_Insn(insn+i, reinterpret_cast<void *> (this));
+    
+    //std::cerr << "LOAD INSN acquired len " << front->acquired_len << std::endl;
+    
+    if(front->acquired_len > sizeof(VTAGenericInsn)){
+      if(read_buffer_map[LOAD_INSN]->getLength() < sizeof(VTAGenericInsn)){
+        // couldn't decode
+        return 1;
       }
-      read_buffer_map[LOAD_INSN]->pop(front->len);
+      while(1){
+        auto head = read_buffer_map[LOAD_INSN]->getHead();
+        VTAGenericInsn* insn = reinterpret_cast<VTAGenericInsn*>(head);
+        if(vta::sim::Device::Run_Insn(insn, reinterpret_cast<void *> (this))){
+          // didn't succeed
+          //std::cerr << "insn didn't succeed" << std::endl;
+          return 1;
+        }
+        //std::cerr << "insn succeed" << std::endl;
+        insn_holder++;
+        //std::cerr << "insn count " << insn_holder << std::endl;
+        read_buffer_map[LOAD_INSN]->pop(sizeof(VTAGenericInsn));
+        if(read_buffer_map[LOAD_INSN]->getLength() < sizeof(VTAGenericInsn)){
+          break;
+        }
+      }
+      
+      if (insn_holder == insn_count && front->len == front->acquired_len){
+        // this->Run(insn + i);
+        dequeueReq<DramReq>(dram_req_map[LOAD_INSN]);
+        //std::cerr << "LOAD_INSN finished" << std::endl;
+        //std::cerr << "fetched length " << front->acquired_len << std::endl;
+        //std::cerr << "insn count " << insn_count << std::endl;
+        return 0;
+      }
+
+      return 1;
     }
     // QT_type(insn_token*)* tokens = new QT_type(insn_token*);
     // this->MakeInsns(insn_count, insn, &(pnumInsn.tokens));
@@ -495,77 +587,84 @@ class Device {
 //   }
 //   }
 
-  static void Run_Insn(const VTAGenericInsn* insn, void * dev) {
+  static int Run_Insn(const VTAGenericInsn* insn, void * dev) {
     Device * device = reinterpret_cast<Device *> (dev);
     const VTAMemInsn* mem = reinterpret_cast<const VTAMemInsn*>(insn);
     const VTAGemInsn* gem = reinterpret_cast<const VTAGemInsn*>(insn);
     const VTAAluInsn* alu = reinterpret_cast<const VTAAluInsn*>(insn);
     switch (mem->opcode) {
       case VTA_OPCODE_LOAD: 
-          // device->RunLoad(mem); 
-          std::cerr << "opcode  " << "VTA OPCODE LOAD" << std::endl;
+          //std::cerr << "opcode  " << "VTA OPCODE LOAD" << std::endl;
+          return device->RunLoad(mem); 
       break;
       case VTA_OPCODE_STORE: 
-          // device->RunStore(mem); 
-          std::cerr << "opcode  " << "VTA OPCODE STORE" << std::endl;
+          //std::cerr << "opcode  " << "VTA OPCODE STORE" << std::endl;
+          return device->RunStore(mem); 
       break;
       case VTA_OPCODE_GEMM: 
-          // device->RunGEMM(gem); 
-          std::cerr << "opcode  " <<  "VTA OPCODE GEMM"  << std::endl;
+          //std::cerr << "opcode  " <<  "VTA OPCODE GEMM"  << std::endl;
+          return device->RunGEMM(gem); 
       break;
       case VTA_OPCODE_ALU: 
-          // device->RunALU(alu); 
-          std::cerr << "opcode  " << "VTA OPCODE ALU" << std::endl;
+          //std::cerr << "opcode  " << "VTA OPCODE ALU" << std::endl;
+          return device->RunALU(alu); 
       break;
       case VTA_OPCODE_FINISH: ++(device->finish_counter_); 
-          std::cerr << "opcode  " << "VTA OPCODE FINISH" << std::endl;
+          //std::cerr << "opcode  " << "VTA OPCODE FINISH" << std::endl;
       break;
       default: {
-        std::cerr << "Unknown op_code" << mem->opcode;
+        //std::cerr << "Unknown op_code" << mem->opcode;
       }
     }
+    return 0;
   }
 
  private:
 
-  void RunLoad(const VTAMemInsn* op) {
-    if (op->x_size == 0) return;
+  int RunLoad(const VTAMemInsn* op) {
+    if (op->x_size == 0) return 0;
     if (op->memory_type == VTA_MEM_ID_INP) {
-      inp_.Load(op, &(prof_->inp_load_nbytes), prof_->SkipExec());
+      //std::cerr << "memory_type " << "VTA_MEM_ID_INP" << std::endl;
+      return inp_.Load(op, &(prof_->inp_load_nbytes), prof_->SkipExec());
     } else if (op->memory_type == VTA_MEM_ID_WGT) {
-      wgt_.Load(op, &(prof_->wgt_load_nbytes), prof_->SkipExec());
+      //std::cerr << "memory_type " << "VTA_MEM_ID_WGT" << std::endl;
+      return wgt_.Load(op, &(prof_->wgt_load_nbytes), prof_->SkipExec());
     } else if (op->memory_type == VTA_MEM_ID_ACC) {
-      acc_.Load(op, &(prof_->acc_load_nbytes), prof_->SkipExec());
+      //std::cerr << "memory_type " << "VTA_MEM_ID_ACC" << std::endl;
+      return acc_.Load(op, &(prof_->acc_load_nbytes), prof_->SkipExec());
     } else if (op->memory_type == VTA_MEM_ID_UOP) {
+      //std::cerr << "memory_type " << "VTA_MEM_ID_UOP" << std::endl;
       // always load in uop, since uop is stateful
       // subsequent non-debug mode exec can depend on it.
-      uop_.Load(op, &(prof_->uop_load_nbytes), false);
+      return uop_.Load(op, &(prof_->uop_load_nbytes), false);
     } else if (op->memory_type == VTA_MEM_ID_ACC_8BIT) {
-      acc_.Load_int8(op, &(prof_->acc_load_nbytes), prof_->SkipExec());
+      //std::cerr << "memory_type " << "VTA_MEM_ID_ACC_8BIT" << std::endl;
+      return acc_.Load_int8(op, &(prof_->acc_load_nbytes), prof_->SkipExec());
     } else {
-      std::cerr << "Unknown memory_type=" << op->memory_type;
+      //std::cerr << "Unknown memory_type=" << op->memory_type;
+      return 0;
     }
   }
 
-  void RunStore(const VTAMemInsn* op) {
-    if (op->x_size == 0) return;
+  int RunStore(const VTAMemInsn* op) {
+    if (op->x_size == 0) return 0;
     if (op->memory_type == VTA_MEM_ID_OUT) {
       prof_->out_store_nbytes += (
           op->x_size * op->y_size * VTA_BATCH * VTA_BLOCK_OUT * VTA_OUT_WIDTH / 8);
       if (!prof_->SkipExec()) {
-        acc_.TruncStore<VTA_OUT_WIDTH>(op);
+        return acc_.TruncStore<VTA_OUT_WIDTH>(op);
       }
     } else {
-      std::cerr << "Store do not support memory_type="
-                 << op->memory_type << std::endl;
+      //std::cerr << "Store do not support memory_type=" << op->memory_type << std::endl;
+      return 0;
     }
+    return 1;
   }
 
-  void RunGEMM(const VTAGemInsn* op) {
+  int RunGEMM(const VTAGemInsn* op) {
     if (!op->reset_reg) {
       prof_->gemm_counter += op->iter_out * op->iter_in * (op->uop_end - op->uop_bgn);
-      if (prof_->SkipExec()) return;
-      printf("really running\n");
+      if (prof_->SkipExec()) return 0;
       for (uint32_t y = 0; y < op->iter_out; ++y) {
         for (uint32_t x = 0; x < op->iter_in; ++x) {
           for (uint32_t uindex = op->uop_bgn; uindex < op->uop_end; ++uindex) {
@@ -599,7 +698,7 @@ class Device {
         }
       }
     } else {
-      if (prof_->SkipExec()) return;
+      if (prof_->SkipExec()) return 0;
       // reset
       for (uint32_t y = 0; y < op->iter_out; ++y) {
         for (uint32_t x = 0; x < op->iter_in; ++x) {
@@ -615,18 +714,19 @@ class Device {
         }
       }
     }
+    return 0;
   }
 
-  void RunALU(const VTAAluInsn* op) {
+  int RunALU(const VTAAluInsn* op) {
     if (op->use_imm) {
-      RunALU_<true>(op);
+      return RunALU_<true>(op);
     } else {
-      RunALU_<false>(op);
+      return RunALU_<false>(op);
     }
   }
 
   template<bool use_imm>
-  void RunALU_(const VTAAluInsn* op) {
+  int RunALU_(const VTAAluInsn* op) {
     switch (op->alu_opcode) {
       case VTA_ALU_OPCODE_ADD: {
         return RunALULoop<use_imm>(op, [](int32_t x, int32_t y) {
@@ -658,15 +758,15 @@ class Device {
           });
       }
       default: {
-        std::cerr << "Unknown ALU code " << op->alu_opcode;
+        //std::cerr << "Unknown ALU code " << op->alu_opcode;
       }
     }
   }
 
   template<bool use_imm, typename F>
-  void RunALULoop(const VTAAluInsn* op, F func) {
+  int RunALULoop(const VTAAluInsn* op, F func) {
     prof_->alu_counter += op->iter_out * op->iter_in * (op->uop_end - op->uop_bgn);
-    if (prof_->SkipExec()) return;
+    if (prof_->SkipExec()) return 0;
     for (int y = 0; y < op->iter_out; ++y) {
       for (int x = 0; x < op->iter_in; ++x) {
         for (int k = op->uop_bgn; k < op->uop_end; ++k) {
@@ -688,6 +788,7 @@ class Device {
         }
       }
     }
+    return 0;
   }
   // the finish counter
   int finish_counter_{0};

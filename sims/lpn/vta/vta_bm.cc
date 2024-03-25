@@ -55,7 +55,7 @@ void VTABm::SetupIntro(struct SimbricksProtoPcieDevIntro &dev_intro) {
   // setup LPN initial state
 //   lpn_init();
   vta_func_device = VTADeviceAlloc();
-  auto ids = std::vector<int>{LOAD_INSN};
+  auto ids = std::vector<int>{LOAD_INSN, LOAD_ID, LOAD_INT8_ID, STORE_ID};
   setupBufferMap(ids);
   setupReqQueues(ids);
 }
@@ -90,13 +90,10 @@ void VTABm::RegWrite(uint8_t bar, uint64_t addr, const void *src,
 
   uint32_t old_is_busy = Registers_.status != 0;
 
-  std::cerr << "error: register write offset=" << addr
+  std::cerr << "Register write offset=" << addr
               << " len=" << len << " value=" << (*((uint32_t*)(src))) <<"\n";
   std::memcpy(reinterpret_cast<uint8_t *>(&Registers_) + addr, src, len);
   
-//   bool finish = (Registers_.status & 0x2) == 0x2;
-
-  // started 
   uint32_t start = (Registers_.status & 0x1) == 0x1;
   if (start){
     uint64_t insn_phy_addr = Registers_.insn_phy_addr_hh; 
@@ -108,48 +105,61 @@ void VTABm::RegWrite(uint8_t bar, uint64_t addr, const void *src,
 
   auto& req = frontReq<DramReq>(dram_req_map[LOAD_INSN]);
   if (req == nullptr) return;
+  auto bytes_to_req = std::min<uint64_t>(req->len - req->acquired_len, DMA_BLOCK_SIZE);
+  if(req->rw == READ_REQ){
+    auto dma_op = std::make_unique<VTADmaReadOp<DMA_BLOCK_SIZE>>(req->addr+req->acquired_len, bytes_to_req, req->id);
+    IssueDma(std::move(dma_op));
+  }
 
-  auto bytes_to_read = std::min<uint64_t>(req->len - req->acquired_len, DMA_BLOCK_SIZE);
-  auto dma_op = std::make_unique<VTADmaReadOp<DMA_BLOCK_SIZE>>(req->addr+req->acquired_len, bytes_to_read);
-  IssueDma(std::move(dma_op));
 }
 
 void VTABm::DmaComplete(std::unique_ptr<pciebm::DMAOp> dma_op) {
   // handle response to DMA read request
   if (!dma_op->write) {
-    // issue DMA request for next block
-    auto& req = frontReq(dram_req_map[LOAD_INSN]);    
-    auto total_bytes = req->len;
-    read_buffer_map[LOAD_INSN]->supply(dma_op->data, dma_op->len);
+    // record the data read
+    uint32_t tag = dma_op->tag;
+    auto& req = frontReq(dram_req_map[tag]);
+    req->inflight = false;    
+    read_buffer_map[tag]->supply(dma_op->data, dma_op->len);
     req->acquired_len += dma_op->len;
 
-    if (req->acquired_len < total_bytes) {
-      uint64_t len =
-          std::min<uint64_t>(total_bytes - req->acquired_len, DMA_BLOCK_SIZE);
-      // reuse dma_op
-      dma_op->dma_addr = req->addr + req->acquired_len;
-      dma_op->len = len;
-      IssueDma(std::move(dma_op));
-    }else{
-      
-      uint64_t insn_phy_addr = Registers_.insn_phy_addr_hh; 
-      insn_phy_addr = insn_phy_addr << 32 | Registers_.insn_phy_addr_lh;
-      uint32_t insn_count = Registers_.insn_count;
-      VTADeviceRun(vta_func_device, insn_phy_addr, insn_count, 10000000);
-
-      // let host know that decoding completed
-      Registers_.status = 0x2;
+  }
+  // handle response to DMA write request
+  else {
+    uint32_t tag = dma_op->tag;
+    auto& req = frontReq(dram_req_map[tag]);
+    req->inflight = false;    
+    write_buffer_map[tag]->pop(dma_op->len);
+    req->acquired_len += dma_op->len;
+  }
+  // every time after dma completes, launch the functional simulation. 
+  uint64_t insn_phy_addr = Registers_.insn_phy_addr_hh; 
+  insn_phy_addr = insn_phy_addr << 32 | Registers_.insn_phy_addr_lh;
+  uint32_t insn_count = Registers_.insn_count;
+  if(!VTADeviceRun(vta_func_device, insn_phy_addr, insn_count, 10000000)){
+    Registers_.status = 0x2;
+  }
+  // scans pending dram requests and issues DMA requests
+  for (auto &kv : dram_req_map) {
+    auto &req = frontReq(kv.second);
+    if (req == nullptr) continue;
+    if (req->inflight == false) {
+      if(req->len == req->acquired_len) continue;
+      auto bytes_to_req = std::min<uint64_t>(req->len - req->acquired_len, DMA_BLOCK_SIZE);
+      if(req->rw == READ_REQ){
+        auto dma_op = std::make_unique<VTADmaReadOp<DMA_BLOCK_SIZE>>(req->addr+req->acquired_len, bytes_to_req, req->id);
+        IssueDma(std::move(dma_op));
+      }
+      else{
+        auto dma_op = std::make_unique<VTADmaWriteOp>(req->addr+req->acquired_len, bytes_to_req, req->id);
+        auto write_head = write_buffer_map[req->id]->getHead();
+        std::memcpy(dma_op->buffer, write_head, bytes_to_req);
+        IssueDma(std::move(dma_op));
+      }
+      req->inflight = true;
     }
   }
-  // DMA write completed
-  else {
-    assert(0);
-    // auto &dma_write = static_cast<VTADmaWriteOp &>(*dma_op);
-    // if (dma_write.last_block) {
-    //   // let host know that decoding completed
-    //   Registers_.isBusy = false;
-    // }
-  }
+  
 }
 
 void VTABm::ExecuteEvent(std::unique_ptr<pciebm::TimedEvent> evt) {
