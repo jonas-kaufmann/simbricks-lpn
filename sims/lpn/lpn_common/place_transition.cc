@@ -1,6 +1,9 @@
 #include "place_transition.hh"
 #include <bits/stdint-uintn.h>
 #include <sys/types.h>
+#include <iostream>
+
+uint64_t lpn::CLK = 0;
 
 int check_token_requirement(BasePlace* self, int num){
    if (num == -2)
@@ -15,13 +18,15 @@ void fire(BasePlace* self, int num){
 }
 
 int able_to_fire_t(Transition* self, uint64_t& enabled_ts){
-
+  //std::cerr << " ===== check fire condition "<< self->id << std::endl;
   int input_size= self->p_input.size(); 
-  uint64_t max_ts = 0;
+  uint64_t max_ts = self->time;
+  
   for(int i = 0; i< input_size; i++){ 
      BasePlace* p = self->p_input[i]; 
      int consume_num_tokens_threshold = 0; 
      int consume_num_tokens_real = self->pi_w[i](); 
+     //std::cerr << "check place " << p->id << " wgt=" << consume_num_tokens_real<< " have=" << p->tokensLen() << std::endl;
      if(self->pi_w_threshold[i] == 0) {
         consume_num_tokens_threshold = consume_num_tokens_real; 
      } else {
@@ -32,9 +37,20 @@ int able_to_fire_t(Transition* self, uint64_t& enabled_ts){
         self->consume_tokens.clear();
         return 0; 
      }
-     max_ts = std::max(max_ts, p->tsAt(consume_num_tokens_threshold-1)); 
+    if (consume_num_tokens_threshold > 0){
+      max_ts = std::max(max_ts, p->tsAt(consume_num_tokens_threshold-1)); 
+      //std::cerr << "can fire loop " << i << " total=" << input_size << " max_ts now="  << max_ts << std::endl;
+    }
+    
+    if (self->pi_guard[i] == NULL) continue; 
+    int grant = self->pi_guard[i](); 
+    if (grant == 0) { 
+      self->consume_tokens.clear();
+      return 0; 
+    } 
   }
   enabled_ts = max_ts;
+  //std::cerr << "=== can fire end "<< std::endl;
   return 1;
 } 
 
@@ -70,13 +86,17 @@ uint64_t delay(Transition* self){
 }
 
 int trigger(Transition* self){
+  ////std::cerr << "trigger " << self->id << std::endl;
   if(self->delay_event != lpn::LARGE) return 1;
   if(self->disable) return 0;
   uint64_t enabled = 0;
   int can_fire = able_to_fire_t(self, enabled);
-  
+  ////std::cerr << "trigger able to fire " << can_fire << std::endl;
   if(self->delay_event == lpn::LARGE && can_fire){
      uint64_t delay_time = delay(self);
+     //disabled when the delay is largest
+     if (delay_time == lpn::LARGE) return 0;
+
      uint64_t enable_time = std::max(enabled, self->pip_ts);
      uint64_t mature_time = enable_time + delay_time; 
      if (self->pip != -1) {
@@ -87,6 +107,7 @@ int trigger(Transition* self){
      self->delay_event = mature_time;
     //  self->count += 1;
   }
+  ////std::cerr << "trigger done " << self->id << std::endl;
   return can_fire;
 }
 
@@ -100,11 +121,17 @@ uint64_t min_time(Transition* self){
 uint64_t min_time_g(Transition** all_ts, int size){
 
   uint64_t min = lpn::LARGE;
+  Transition* min_t = NULL;
   for(int i=0; i<size; i++){
     uint64_t _t = min_time(all_ts[i]);
-    if (min > _t)
-        min = _t;
+    if (min > _t){
+      min = _t;
+      min_t = all_ts[i];
+    }
   }
+  // if (min_t != NULL){
+  //   std::cerr << "min time transition: " << min_t->id << std::endl;
+  // }
   return min;
 }
 
@@ -123,16 +150,19 @@ std::vector<Transition*>* min_time_t(Transition** all_ts, uint64_t min_t, int si
 int sync(Transition* self, uint64_t time){
 
    if (self->delay_event == lpn::LARGE){
-      // self->time = time;
+      self->time = time;
       return 1;
    }
    
    if(time >= self->delay_event){
     //  printf("commit lpn trans: %s at cycles %lu \n", self->id.c_str(), time);
     // reordered the two
+     std::cerr <<  "commit=" << self->id << " at ps=" << time << std::endl;
+     self->count ++;
      accept_t(self);
      fire_t(self);
      self->delay_event = lpn::LARGE;
+     ////std::cerr <<  "commit " << self->id << "finishes " << std::endl;
    }
    return 0;
 }

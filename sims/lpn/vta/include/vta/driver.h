@@ -36,10 +36,13 @@ extern "C" {
 #define CHECK_LE(x, y) assert(x <= y)
 #define CHECK_EQ(x, y) assert(x == y)
 
-#define LOAD_INT8_ID 0
-#define STORE_ID 1
-#define LOAD_INSN 2
-#define LOAD_ID 3
+
+#define LOAD_ACC_ID 0
+#define LOAD_INP_ID 1
+#define LOAD_WGT_ID 2
+#define LOAD_UOP_ID 3
+#define STORE_ID 4
+#define LOAD_INSN 5
 
 #include <stdint.h>
 #include <stdlib.h>

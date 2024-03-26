@@ -6,9 +6,13 @@
         Transition* t = t_list[i]; \
         func; \
     } 
+    
+void TransitionCountLog(Transition* t_list[], int size);
 
 uint64_t NextCommitTime(Transition* t_list[], int size);
 
 int CommitAtTime(Transition* t_list[], int size, uint64_t time);
 
+// need to let outside world to update lpn clk
+void UpdateClk(Transition* t_list[], int size, uint64_t clk);
 #endif

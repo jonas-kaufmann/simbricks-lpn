@@ -18,6 +18,7 @@
 namespace lpn {
 
 const uint64_t LARGE = (1<<64)-1; 
+extern uint64_t CLK;
 
 }
 
@@ -45,7 +46,7 @@ class BasePlace {
 public:
     std::string id;
     explicit BasePlace(std::string asid) : id(std::move(asid)) {}
-
+    
     virtual int tokensLen() const {
       return 0;
     }
@@ -139,7 +140,7 @@ using Transition = struct Transition
     create_input_vector_list();
     create_input_w_vector_list();
     create_input_threshold_vector_list();
-    // create_input_guard_vector_list();
+    create_input_guard_vector_list();
     create_output_vector_list();
     
     std::deque<int> consume_tokens;

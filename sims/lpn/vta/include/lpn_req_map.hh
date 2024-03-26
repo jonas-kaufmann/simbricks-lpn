@@ -12,6 +12,7 @@
 
 typedef struct LpnReq{
     uint32_t id;
+    bool rw;
     uint32_t len;
     uint32_t acquired_len; 
 } LpnReq;

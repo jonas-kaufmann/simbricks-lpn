@@ -14,3 +14,17 @@ int CommitAtTime(Transition* t_list[], int size, uint64_t time){
     LOOP_TS(sync(t, time), size);
     return 0;
 }
+
+void UpdateClk(Transition* t_list[], int size, uint64_t clk){
+  for(int i=0; i<size; i++){
+      Transition* t = t_list[i];
+      t->time = clk;
+  }
+}
+    
+void TransitionCountLog(Transition* t_list[], int size){
+  for(int i=0; i<size; i++){
+      Transition* t = t_list[i];
+      std::cerr << "Transition:"<< t->id << " commit count=" << t->count << "\n";
+  }
+}

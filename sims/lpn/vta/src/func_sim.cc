@@ -31,12 +31,15 @@
 #include <unordered_map>
 #include <cstring>
 #include <sstream>
-#include "../../lpn_helper/rollback_buf.hh"
-#include "../include/lpn_req_map.hh"
-#include "../include/vta/driver.h"
 #include <assert.h>
 #include <bits/stdint-uintn.h>
 #include <memory>
+
+#include "sims/lpn/vta/include/lpn_req_map.hh"
+#include "sims/lpn/vta/include/vta/driver.h"
+#include "sims/lpn/vta/lpn_def/all_enum.hh"
+#include "sims/lpn/vta/lpn_def/places.hh"
+
 
 
 namespace vta{
@@ -156,13 +159,20 @@ class SRAM {
   // Execute the load instruction on this SRAM
   int Load(const VTAMemInsn* op,
             uint64_t* load_counter,
-            bool skip_exec) {
+            bool skip_exec,
+            uint64_t tag) {
     load_counter[0] += (op->x_size * op->y_size) * kElemBytes;
     if (skip_exec) return 0;
     DType* sram_ptr = data_ + op->sram_base;
     uint8_t* dram_ptr = reinterpret_cast<uint8_t*>(op->dram_base * kElemBytes);
-    auto& front = frontReq<DramReq>(dram_req_map[LOAD_ID]);
+    auto& front = frontReq<DramReq>(dram_req_map[tag]);
     if(front == nullptr || front->addr != (uint64_t) dram_ptr){
+        auto& lpnfront = frontReq(lpn_req_map[tag]); 
+        if (tag == LOAD_INP_ID && lpnfront == nullptr){
+          std::cerr << "LOAD inp is moving too fast, and needs to wait for LPN" << std::endl;
+          return 1;
+        }
+
         int incr = 0;
         for (uint32_t y = 0; y < op->y_size; ++y) {
           incr += kElemBytes * op->x_stride;
@@ -170,11 +180,15 @@ class SRAM {
 
         auto req = std::make_unique<DramReq>();
         req->addr = (uint64_t)dram_ptr;
-        req->id = LOAD_ID;
+        req->id = tag;
         req->rw = READ_REQ;
         req->len = incr;
-        std::cerr << "enq Load request " << req->addr << " " << req->len << std::endl;
-        enqueueReq<DramReq>(dram_req_map[LOAD_ID], req);
+        if (tag == LOAD_INP_ID){
+          std::cerr << "enq Load request " << req->addr << " len=" << req->len << " len of lpn="<< lpnfront->len << std::endl;
+          if(lpnfront->len != req->len)
+            assert(0);
+        }
+        enqueueReq<DramReq>(dram_req_map[tag], req);
         return 1;
     }
     
@@ -182,9 +196,9 @@ class SRAM {
         return 1;        
     }
     
-    dequeueReq<DramReq>(dram_req_map[LOAD_ID]);
+    dequeueReq<DramReq>(dram_req_map[tag]);
     //std::cerr << "LOAD finished with len " << front->acquired_len << std::endl;
-    dram_ptr = read_buffer_map[LOAD_ID]->getHead();
+    dram_ptr = read_buffer_map[tag]->getHead();
 
     uint64_t xtotal = op->x_size + op->x_pad_0 + op->x_pad_1;
     uint32_t ytotal = op->y_size + op->y_pad_0 + op->y_pad_1;
@@ -203,11 +217,11 @@ class SRAM {
       sram_ptr += op->x_pad_1;
       dram_ptr += kElemBytes * op->x_stride;
     }
-    int incr = dram_ptr-read_buffer_map[LOAD_ID]->getHead();
+    int incr = dram_ptr-read_buffer_map[tag]->getHead();
     //std::cerr << "incr " << incr <<" acquired " << front->acquired_len << std::endl;
     assert(incr <= front->acquired_len);
     //std::cerr << "LOAD succeeds " << std::endl;
-    read_buffer_map[LOAD_ID]->pop(front->acquired_len);
+    read_buffer_map[tag]->pop(front->acquired_len);
     memset(sram_ptr, 0, kElemBytes * xtotal * op->y_pad_1);
     return 0;
   }
@@ -215,7 +229,8 @@ class SRAM {
   // This is for load 8bits to ACC only
   int Load_int8(const VTAMemInsn* op,
             uint64_t* load_counter,
-            bool skip_exec) {
+            bool skip_exec,
+            uint64_t tag) {
     CHECK_EQ(kBits, VTA_ACC_WIDTH);
 
     // TODO(zhanghao): extend to other width
@@ -228,7 +243,7 @@ class SRAM {
     DType* sram_ptr = data_ + op->sram_base;
     // int8_t* dram_ptr = static_cast<int8_t*>(dram->GetAddr(op->dram_base * kElemBytes / factor));
     int8_t* dram_ptr = reinterpret_cast<int8_t*>(op->dram_base * kElemBytes / factor);
-    auto& front = frontReq<DramReq>(dram_req_map[LOAD_INT8_ID]);
+    auto& front = frontReq<DramReq>(dram_req_map[tag]);
     if(front == nullptr || front->addr != (uint64_t) dram_ptr){
         auto incr = 0;
         for (uint32_t y = 0; y < op->y_size; ++y) {
@@ -237,16 +252,16 @@ class SRAM {
         }
         auto req = std::make_unique<DramReq>();
         req->addr = (uint64_t)dram_ptr;
-        req->id = LOAD_INT8_ID;
+        req->id = tag;
         req->len = incr;
-        enqueueReq<DramReq>(dram_req_map[LOAD_INT8_ID], req);
+        enqueueReq<DramReq>(dram_req_map[tag], req);
         return 1;
     }
     
     if(front->acquired_len < front->len){
         return 1;        
     }
-    dequeueReq<DramReq>(dram_req_map[LOAD_INT8_ID]);
+    dequeueReq<DramReq>(dram_req_map[tag]);
 
     uint64_t xtotal = op->x_size + op->x_pad_0 + op->x_pad_1;
     uint32_t ytotal = op->y_size + op->y_pad_0 + op->y_pad_1;
@@ -256,7 +271,7 @@ class SRAM {
     memset(sram_ptr, 0, kElemBytes * xtotal * op->y_pad_0);
     sram_ptr += xtotal * op->y_pad_0;
 
-    dram_ptr = (int8_t*)read_buffer_map[LOAD_INT8_ID]->getHead();
+    dram_ptr = (int8_t*)read_buffer_map[tag]->getHead();
     for (uint32_t y = 0; y < op->y_size; ++y) {
       memset(sram_ptr, 0, kElemBytes * op->x_pad_0);
       sram_ptr += op->x_pad_0;
@@ -274,9 +289,9 @@ class SRAM {
       // dram one element is 1 bytes rather than 4 bytes
       dram_ptr += kElemBytes / factor * op->x_stride;
     }
-    uint64_t incr = (uint8_t*)dram_ptr-read_buffer_map[LOAD_ID]->getHead();
+    uint64_t incr = (uint8_t*)dram_ptr-read_buffer_map[tag]->getHead();
     assert(incr <= front->acquired_len);
-    read_buffer_map[LOAD_INT8_ID]->pop(front->acquired_len);
+    read_buffer_map[tag]->pop(front->acquired_len);
     memset(sram_ptr, 0, kElemBytes * xtotal * op->y_pad_1);
     return 0;
   }
@@ -416,6 +431,8 @@ class Device {
           uint32_t insn_count,
           uint32_t wait_cycles) {
     static uint32_t insn_holder = 0;
+    static bool insn_appended = false;
+    if(insn_holder == insn_count) return 0;
     auto& front = frontReq<DramReq>(dram_req_map[LOAD_INSN]);
     if (front == nullptr) {
       auto req = std::make_unique<DramReq>();
@@ -427,16 +444,21 @@ class Device {
       return 1;
     }
     
-    //std::cerr << "LOAD INSN acquired len " << front->acquired_len << std::endl;
+    // std::cerr << "LOAD INSN acquired len " << front->acquired_len << std::endl;
     
     if(front->acquired_len > sizeof(VTAGenericInsn)){
       if(read_buffer_map[LOAD_INSN]->getLength() < sizeof(VTAGenericInsn)){
         // couldn't decode
         return 1;
       }
+      
       while(1){
         auto head = read_buffer_map[LOAD_INSN]->getHead();
         VTAGenericInsn* insn = reinterpret_cast<VTAGenericInsn*>(head);
+        if(!insn_appended){
+          MakeInsn(*insn);
+          insn_appended = true;
+        }
         if(vta::sim::Device::Run_Insn(insn, reinterpret_cast<void *> (this))){
           // didn't succeed
           //std::cerr << "insn didn't succeed" << std::endl;
@@ -444,7 +466,8 @@ class Device {
         }
         //std::cerr << "insn succeed" << std::endl;
         insn_holder++;
-        //std::cerr << "insn count " << insn_holder << std::endl;
+        insn_appended = false;
+        std::cerr << "insn size " << sizeof(VTAGenericInsn) << std::endl;
         read_buffer_map[LOAD_INSN]->pop(sizeof(VTAGenericInsn));
         if(read_buffer_map[LOAD_INSN]->getLength() < sizeof(VTAGenericInsn)){
           break;
@@ -470,144 +493,169 @@ class Device {
   }
 
  private:
-//  void MakeInsns(int insn_count, const VTAGenericInsn* insn, QT_type(insn_token*)* tokens) {
-//     // Keep tabs on dependence queues
-//     // Converter
-//     union VTAInsn c;
-//     // Iterate over all instructions
-//     for (int i = 0; i < insn_count; ++i) {
-//       NEW_TOKEN(insn_token, new_token);
-//       new_token->opcode = static_cast<int>(ALL_ENUM::empty);
-//       new_token->subopcode = static_cast<int>(ALL_ENUM::empty);
-//       new_token->tstype = static_cast<int>(ALL_ENUM::empty);
-      
-//       tokens->push_back(new_token);
+ void MakeInsn(VTAGenericInsn& insn) {
+    // Keep tabs on dependence queues
+    // Converter
+    //std::cerr << "creating new token for lpn " <<std::endl;
+    union VTAInsn c;
+    // Iterate over all instructions
+    NEW_TOKEN(token_class_ostxyuullupppp, new_token);
+      new_token->opcode = static_cast<int>(ALL_ENUM::EMPTY);
+      new_token->subopcode = static_cast<int>(ALL_ENUM::EMPTY);
+      new_token->tstype = static_cast<int>(ALL_ENUM::EMPTY);
+      new_token->pop_prev = 0;
+      new_token->pop_next =  0;
+      new_token->push_prev = 0;
+      new_token->push_next = 0;
+      new_token->xsize = 0;
+      new_token->ysize = 0;
 
-//       c.generic = insn[i];
-//       if (c.mem.opcode == VTA_OPCODE_LOAD || c.mem.opcode == VTA_OPCODE_STORE) {
-//         if (c.mem.x_size == 0) {
-//           if (c.mem.opcode == VTA_OPCODE_STORE) {
-//             // printf("NOP-STORE-STAGE\n");
-//             new_token->opcode = static_cast<int>(ALL_ENUM::store);
-//             new_token->subopcode = static_cast<int>(ALL_ENUM::SYNC);
-//           } else if (c.mem.memory_type == VTA_MEM_ID_ACC || c.mem.memory_type == VTA_MEM_ID_ACC_8BIT || c.mem.memory_type == VTA_MEM_ID_UOP) {
-//             // printf("NOP-COMPUTE-STAGE\n");
-//             new_token->opcode = static_cast<int>(ALL_ENUM::compute);
-//             new_token->subopcode = static_cast<int>(ALL_ENUM::SYNC);
-//           } else {
-//             new_token->opcode = static_cast<int>(ALL_ENUM::load);
-//             new_token->subopcode = static_cast<int>(ALL_ENUM::SYNC);
-//           }
-//           new_token->pop_prev =  static_cast<int>(c.mem.pop_prev_dep);
-//           new_token->pop_next =  static_cast<int>(c.mem.pop_next_dep);
-//           new_token->push_prev =  static_cast<int>(c.mem.push_prev_dep);
-//           new_token->push_next =  static_cast<int>(c.mem.push_next_dep);
-//           continue;
-//         }
-//         // Print instruction field information
-//         if (c.mem.opcode == VTA_OPCODE_LOAD) {
-//           // printf("LOAD ");
-//           if (c.mem.memory_type == VTA_MEM_ID_UOP) {
-//             new_token->opcode = static_cast<int>(ALL_ENUM::compute);
-//             new_token->subopcode = static_cast<int>(ALL_ENUM::loadUop);
-//           }
-//           if (c.mem.memory_type == VTA_MEM_ID_WGT){
-//             new_token->opcode = static_cast<int>(ALL_ENUM::load);
-//             new_token->subopcode = static_cast<int>(ALL_ENUM::load);
-//             new_token->tstype = static_cast<int>(ALL_ENUM::wgt);
+      pnumInsn.pushToken(new_token);
+      NEW_TOKEN(token_class_total_insn, launch_token);
+      launch_token->total_insn = 1;
+      plaunch.pushToken(launch_token);
+
+      c.generic = insn;
+      if (c.mem.opcode == VTA_OPCODE_LOAD || c.mem.opcode == VTA_OPCODE_STORE) {
+        if (c.mem.x_size == 0) {
+          if (c.mem.opcode == VTA_OPCODE_STORE) {
+            // printf("NOP-STORE-STAGE\n");
+            new_token->opcode = static_cast<int>(ALL_ENUM::STORE);
+            new_token->subopcode = static_cast<int>(ALL_ENUM::SYNC);
+          } else if (c.mem.memory_type == VTA_MEM_ID_ACC || c.mem.memory_type == VTA_MEM_ID_ACC_8BIT || c.mem.memory_type == VTA_MEM_ID_UOP) {
+            // printf("NOP-COMPUTE-STAGE\n");
+            new_token->opcode = static_cast<int>(ALL_ENUM::COMPUTE);
+            new_token->subopcode = static_cast<int>(ALL_ENUM::SYNC);
+          } else {
+            new_token->opcode = static_cast<int>(ALL_ENUM::LOAD);
+            new_token->subopcode = static_cast<int>(ALL_ENUM::SYNC);
+          }
+          new_token->pop_prev =  static_cast<int>(c.mem.pop_prev_dep);
+          new_token->pop_next =  static_cast<int>(c.mem.pop_next_dep);
+          new_token->push_prev =  static_cast<int>(c.mem.push_prev_dep);
+          new_token->push_next =  static_cast<int>(c.mem.push_next_dep);
+          return;
+        }
+        // Print instruction field information
+        if (c.mem.opcode == VTA_OPCODE_LOAD) {
+          // printf("LOAD ");
+          if (c.mem.memory_type == VTA_MEM_ID_UOP) {
+            new_token->opcode = static_cast<int>(ALL_ENUM::COMPUTE);
+            new_token->subopcode = static_cast<int>(ALL_ENUM::LOADUOP);
+          }
+          if (c.mem.memory_type == VTA_MEM_ID_WGT){
+            new_token->opcode = static_cast<int>(ALL_ENUM::LOAD);
+            new_token->subopcode = static_cast<int>(ALL_ENUM::LOAD);
+            new_token->tstype = static_cast<int>(ALL_ENUM::WGT);
             
-//           } 
-//           if (c.mem.memory_type == VTA_MEM_ID_INP){
-//             new_token->opcode = static_cast<int>(ALL_ENUM::load);
-//             new_token->subopcode = static_cast<int>(ALL_ENUM::load);
-//             new_token->tstype = static_cast<int>(ALL_ENUM::inp);
+          } 
+          if (c.mem.memory_type == VTA_MEM_ID_INP){
+            new_token->opcode = static_cast<int>(ALL_ENUM::LOAD);
+            new_token->subopcode = static_cast<int>(ALL_ENUM::LOAD);
+            new_token->tstype = static_cast<int>(ALL_ENUM::INP);
             
-//           } 
-//           if (c.mem.memory_type == VTA_MEM_ID_ACC) {
-//             new_token->opcode = static_cast<int>(ALL_ENUM::compute);
-//             new_token->subopcode = static_cast<int>(ALL_ENUM::loadAcc);
-//           }
-//         }
-//         if (c.mem.opcode == VTA_OPCODE_STORE) {
-//           new_token->opcode = static_cast<int>(ALL_ENUM::store);
-//           new_token->subopcode = static_cast<int>(ALL_ENUM::store);
+          } 
+          if (c.mem.memory_type == VTA_MEM_ID_ACC) {
+            new_token->opcode = static_cast<int>(ALL_ENUM::COMPUTE);
+            new_token->subopcode = static_cast<int>(ALL_ENUM::LOADACC);
+          }
+        }
+        if (c.mem.opcode == VTA_OPCODE_STORE) {
+          new_token->opcode = static_cast<int>(ALL_ENUM::STORE);
+          new_token->subopcode = static_cast<int>(ALL_ENUM::STORE);
+        }
 
-//         }
+        new_token->pop_prev =  static_cast<int>(c.mem.pop_prev_dep);
+        new_token->pop_next =  static_cast<int>(c.mem.pop_next_dep);
+        new_token->push_prev =  static_cast<int>(c.mem.push_prev_dep);
+        new_token->push_next =  static_cast<int>(c.mem.push_next_dep);
+        new_token->xsize =  static_cast<int>(c.mem.x_size);
+        new_token->ysize =  static_cast<int>(c.mem.y_size);
+        // if (new_token->subopcode == static_cast<int>(ALL_ENUM::LOADUOP)) {
+        //   std::cerr << new_token->subopcode << "loadup " << "pop_prev " << new_token->pop_prev << " pop_next " << new_token->pop_next << " push_prev " << new_token->push_prev << " push_next " << new_token->push_next << " xsize " << new_token->xsize << " ysize " << new_token->ysize << " uop_begin " << new_token->uop_begin << " uop_end " << new_token->uop_end << " lp_1 " << new_token->lp_1 << " lp_0 " << new_token->lp_0 << std::endl;
+        // }
 
-//         new_token->pop_prev =  static_cast<int>(c.mem.pop_prev_dep);
-//         new_token->pop_next =  static_cast<int>(c.mem.pop_next_dep);
-//         new_token->push_prev =  static_cast<int>(c.mem.push_prev_dep);
-//         new_token->push_next =  static_cast<int>(c.mem.push_next_dep);
-//         new_token->xsize =  static_cast<int>(c.mem.x_size);
-//         new_token->ysize =  static_cast<int>(c.mem.y_size);
 
-//         // c.mem.x_pad_0 = 0;
-//         // c.mem.x_pad_1 = 0;
-//         // c.mem.y_pad_0 = 0;
-//         // c.mem.y_pad_1 = 0;
+        // c.mem.x_pad_0 = 0;
+        // c.mem.x_pad_1 = 0;
+        // c.mem.y_pad_0 = 0;
+        // c.mem.y_pad_1 = 0;
 
-//       } else if (c.mem.opcode == VTA_OPCODE_GEMM) {
-//         // Print instruction field information
-//         new_token->opcode = static_cast<int>(ALL_ENUM::compute);
-//         new_token->subopcode = static_cast<int>(ALL_ENUM::gemm);
+      } else if (c.mem.opcode == VTA_OPCODE_GEMM) {
+        // Print instruction field information
+        new_token->opcode = static_cast<int>(ALL_ENUM::COMPUTE);
+        new_token->subopcode = static_cast<int>(ALL_ENUM::GEMM);
 
-//         new_token->pop_prev =  static_cast<int>(c.mem.pop_prev_dep);
-//         new_token->pop_next =  static_cast<int>(c.mem.pop_next_dep);
-//         new_token->push_prev =  static_cast<int>(c.mem.push_prev_dep);
-//         new_token->push_next =  static_cast<int>(c.mem.push_next_dep);
-//         new_token->xsize =  static_cast<int>(c.mem.x_size);
-//         new_token->ysize =  static_cast<int>(c.mem.y_size);
-//         new_token->uop_begin = static_cast<int>(c.gemm.uop_bgn);
-//         new_token->uop_end = static_cast<int>(c.gemm.uop_end);
-//         new_token->lp_1 = static_cast<int>(c.gemm.iter_out);
-//         new_token->lp_0 = static_cast<int>(c.gemm.iter_in);
+        new_token->pop_prev =  static_cast<int>(c.mem.pop_prev_dep);
+        new_token->pop_next =  static_cast<int>(c.mem.pop_next_dep);
+        new_token->push_prev =  static_cast<int>(c.mem.push_prev_dep);
+        new_token->push_next =  static_cast<int>(c.mem.push_next_dep);
+        new_token->xsize =  static_cast<int>(c.mem.x_size);
+        new_token->ysize =  static_cast<int>(c.mem.y_size);
+        new_token->uop_begin = static_cast<int>(c.gemm.uop_bgn);
+        new_token->uop_end = static_cast<int>(c.gemm.uop_end);
+        new_token->lp_1 = static_cast<int>(c.gemm.iter_out);
+        new_token->lp_0 = static_cast<int>(c.gemm.iter_in);
+        // std::cerr <<"gemm " << "pop_prev " << new_token->pop_prev << " pop_next " << new_token->pop_next << " push_prev " << new_token->push_prev << " push_next " << new_token->push_next << " xsize " << new_token->xsize << " ysize " << new_token->ysize << " uop_begin " << new_token->uop_begin << " uop_end " << new_token->uop_end << " lp_1 " << new_token->lp_1 << " lp_0 " << new_token->lp_0 << std::endl;
 
-//       } else if (c.mem.opcode == VTA_OPCODE_ALU) {
+      } else if (c.mem.opcode == VTA_OPCODE_ALU) {
         
-//         new_token->opcode = static_cast<int>(ALL_ENUM::compute);
-//         new_token->subopcode = static_cast<int>(ALL_ENUM::alu);
+        new_token->opcode = static_cast<int>(ALL_ENUM::COMPUTE);
+        new_token->subopcode = static_cast<int>(ALL_ENUM::ALU);
         
-//         new_token->pop_prev =  static_cast<int>(c.mem.pop_prev_dep);
-//         new_token->pop_next =  static_cast<int>(c.mem.pop_next_dep);
-//         new_token->push_prev =  static_cast<int>(c.mem.push_prev_dep);
-//         new_token->push_next =  static_cast<int>(c.mem.push_next_dep);
-//         new_token->xsize =  static_cast<int>(c.mem.x_size);
-//         new_token->ysize =  static_cast<int>(c.mem.y_size);
-//         new_token->uop_begin = static_cast<int>(c.alu.uop_bgn);
-//         new_token->uop_end = static_cast<int>(c.alu.uop_end);
-//         new_token->lp_1 = static_cast<int>(c.alu.iter_out);
-//         new_token->lp_0 = static_cast<int>(c.alu.iter_in);
-//         new_token->use_alu_imm = static_cast<int>(c.alu.use_imm);
+        new_token->pop_prev =  static_cast<int>(c.mem.pop_prev_dep);
+        new_token->pop_next =  static_cast<int>(c.mem.pop_next_dep);
+        new_token->push_prev =  static_cast<int>(c.mem.push_prev_dep);
+        new_token->push_next =  static_cast<int>(c.mem.push_next_dep);
+        new_token->xsize =  static_cast<int>(c.mem.x_size);
+        new_token->ysize =  static_cast<int>(c.mem.y_size);
+        new_token->uop_begin = static_cast<int>(c.alu.uop_bgn);
+        new_token->uop_end = static_cast<int>(c.alu.uop_end);
+        new_token->lp_1 = static_cast<int>(c.alu.iter_out);
+        new_token->lp_0 = static_cast<int>(c.alu.iter_in);
+        new_token->use_alu_imm = static_cast<int>(c.alu.use_imm);
 
-//       } else if (c.mem.opcode == VTA_OPCODE_FINISH) {
-//         new_token->opcode = static_cast<int>(ALL_ENUM::load);
-//         new_token->subopcode = static_cast<int>(ALL_ENUM::SYNC);
-//         new_token->tstype = static_cast<int>(ALL_ENUM::finish);
-//       }
-//   }
-//   }
+      } else if (c.mem.opcode == VTA_OPCODE_FINISH) {
+        new_token->opcode = static_cast<int>(ALL_ENUM::LOAD);
+        new_token->subopcode = static_cast<int>(ALL_ENUM::SYNC);
+        new_token->tstype = static_cast<int>(ALL_ENUM::FINISH);
+      }
+  }
 
   static int Run_Insn(const VTAGenericInsn* insn, void * dev) {
     Device * device = reinterpret_cast<Device *> (dev);
     const VTAMemInsn* mem = reinterpret_cast<const VTAMemInsn*>(insn);
     const VTAGemInsn* gem = reinterpret_cast<const VTAGemInsn*>(insn);
     const VTAAluInsn* alu = reinterpret_cast<const VTAAluInsn*>(insn);
+    int ans = 0;
     switch (mem->opcode) {
       case VTA_OPCODE_LOAD: 
-          //std::cerr << "opcode  " << "VTA OPCODE LOAD" << std::endl;
-          return device->RunLoad(mem); 
+          ans = device->RunLoad(mem);
+          if(ans == 0){
+            std::cerr << "opcode  " << "VTA OPCODE LOAD" << std::endl;
+          }
+          return ans; 
       break;
-      case VTA_OPCODE_STORE: 
-          //std::cerr << "opcode  " << "VTA OPCODE STORE" << std::endl;
-          return device->RunStore(mem); 
+      case VTA_OPCODE_STORE:
+          ans = device->RunStore(mem);
+          if(ans == 0){
+            std::cerr << "opcode  " << "VTA OPCODE STORE" << std::endl;
+          }
+          return ans; 
       break;
       case VTA_OPCODE_GEMM: 
-          //std::cerr << "opcode  " <<  "VTA OPCODE GEMM"  << std::endl;
-          return device->RunGEMM(gem); 
+          ans = device->RunGEMM(gem);
+          if (ans == 0){
+            std::cerr << "opcode  " <<  "VTA OPCODE GEMM"  << std::endl;
+          }
+          return ans;
       break;
-      case VTA_OPCODE_ALU: 
-          //std::cerr << "opcode  " << "VTA OPCODE ALU" << std::endl;
-          return device->RunALU(alu); 
+      case VTA_OPCODE_ALU:
+          ans = device->RunALU(alu);
+          if (ans == 0){
+            std::cerr << "opcode  " << "VTA OPCODE ALU" << std::endl;
+          }
+          return ans; 
       break;
       case VTA_OPCODE_FINISH: ++(device->finish_counter_); 
           //std::cerr << "opcode  " << "VTA OPCODE FINISH" << std::endl;
@@ -624,22 +672,22 @@ class Device {
   int RunLoad(const VTAMemInsn* op) {
     if (op->x_size == 0) return 0;
     if (op->memory_type == VTA_MEM_ID_INP) {
-      //std::cerr << "memory_type " << "VTA_MEM_ID_INP" << std::endl;
-      return inp_.Load(op, &(prof_->inp_load_nbytes), prof_->SkipExec());
+      // std::cerr << "memory_type " << "VTA_MEM_ID_INP" << std::endl;
+      return inp_.Load(op, &(prof_->inp_load_nbytes), prof_->SkipExec(), LOAD_INP_ID);
     } else if (op->memory_type == VTA_MEM_ID_WGT) {
-      //std::cerr << "memory_type " << "VTA_MEM_ID_WGT" << std::endl;
-      return wgt_.Load(op, &(prof_->wgt_load_nbytes), prof_->SkipExec());
+      // std::cerr << "memory_type " << "VTA_MEM_ID_WGT" << std::endl;
+      return wgt_.Load(op, &(prof_->wgt_load_nbytes), prof_->SkipExec(), LOAD_WGT_ID);
     } else if (op->memory_type == VTA_MEM_ID_ACC) {
-      //std::cerr << "memory_type " << "VTA_MEM_ID_ACC" << std::endl;
-      return acc_.Load(op, &(prof_->acc_load_nbytes), prof_->SkipExec());
+      // std::cerr << "memory_type " << "VTA_MEM_ID_ACC" << std::endl;
+      return acc_.Load(op, &(prof_->acc_load_nbytes), prof_->SkipExec(), LOAD_ACC_ID);
     } else if (op->memory_type == VTA_MEM_ID_UOP) {
       //std::cerr << "memory_type " << "VTA_MEM_ID_UOP" << std::endl;
       // always load in uop, since uop is stateful
       // subsequent non-debug mode exec can depend on it.
-      return uop_.Load(op, &(prof_->uop_load_nbytes), false);
+      return uop_.Load(op, &(prof_->uop_load_nbytes), false, LOAD_UOP_ID);
     } else if (op->memory_type == VTA_MEM_ID_ACC_8BIT) {
       //std::cerr << "memory_type " << "VTA_MEM_ID_ACC_8BIT" << std::endl;
-      return acc_.Load_int8(op, &(prof_->acc_load_nbytes), prof_->SkipExec());
+      return acc_.Load_int8(op, &(prof_->acc_load_nbytes), prof_->SkipExec(), LOAD_ACC_ID);
     } else {
       //std::cerr << "Unknown memory_type=" << op->memory_type;
       return 0;
