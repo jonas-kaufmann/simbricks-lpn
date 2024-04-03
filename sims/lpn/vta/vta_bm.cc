@@ -1,4 +1,5 @@
 #include "include/vta_bm.hh"
+#include "include/vta/hw_spec.h"
 
 #include <bits/stdint-uintn.h>
 #include <bits/types/siginfo_t.h>
@@ -9,6 +10,7 @@
 #include <cstring>
 #include <iostream>
 #include <memory>
+#include <thread>
 
 #include <simbricks/pciebm/pciebm.hh>
 
@@ -31,6 +33,7 @@
 namespace {
 VTABm vta_sim{};
 VTADeviceHandle vta_func_device;
+std::thread func_thread;
 
 void sigint_handler(int dummy) {
   vta_sim.SIGINTHandler();
@@ -95,8 +98,6 @@ void VTABm::RegWrite(uint8_t bar, uint64_t addr, const void *src,
     return;
   }
 
-  uint32_t old_is_busy = Registers_.status != 0;
-
   std::cerr << "Register write offset=" << addr
               << " len=" << len << " value=" << (*((uint32_t*)(src))) <<"\n";
   std::memcpy(reinterpret_cast<uint8_t *>(&Registers_) + addr, src, len);
@@ -106,13 +107,21 @@ void VTABm::RegWrite(uint8_t bar, uint64_t addr, const void *src,
     uint64_t insn_phy_addr = Registers_.insn_phy_addr_hh; 
     insn_phy_addr = insn_phy_addr << 32 | Registers_.insn_phy_addr_lh;
     uint32_t insn_count = NUM_INSN;//Registers_.insn_count;
+    std::cout << "insn_phy_addr: " << insn_phy_addr << " insn_count: " << insn_count << std::endl;
 
-    std::cerr << "insn_phy_addr: " << insn_phy_addr << " insn_count: " << insn_count << std::endl;
-    VTADeviceRun(vta_func_device, insn_phy_addr, insn_count, 10000000);
+    // Enqueue load request
+    auto r = std::make_unique<DramReq>();
+    r->addr = insn_phy_addr;
+    r->id = LOAD_INSN;
+    r->len = insn_count * sizeof(VTAGenericInsn);
+    r->rw = READ_REQ;
+    enqueueReq<DramReq>(dram_req_map[LOAD_INSN], r);
+
+    // Start func simulator thread
+    std::cout << "LAUNCHING FUNC SIM THREAD " << std::endl;
+    func_thread = std::thread(VTADeviceRun, vta_func_device, insn_phy_addr, insn_count, 10000000);
+    //VTADeviceRun(vta_func_device, insn_phy_addr, insn_count, 10000000);
   }
-
-  // auto& lpn_req = frontReq<LpnReq>(lpn_req_map[LOAD_INSN]);
-  // if (lpn_req == nullptr) return;
 
   auto& req = frontReq<DramReq>(dram_req_map[LOAD_INSN]);
   if (req == nullptr) return;
@@ -120,8 +129,8 @@ void VTABm::RegWrite(uint8_t bar, uint64_t addr, const void *src,
   if(req->rw == READ_REQ){
     auto dma_op = std::make_unique<VTADmaReadOp<DMA_BLOCK_SIZE>>(req->addr+req->acquired_len, bytes_to_req, req->id);
     IssueDma(std::move(dma_op));
+    req->inflight = true;
   }
-
 }
 
 void VTABm::DmaComplete(std::unique_ptr<pciebm::DMAOp> dma_op) {
@@ -158,14 +167,32 @@ void VTABm::DmaComplete(std::unique_ptr<pciebm::DMAOp> dma_op) {
     }
   }
 
+  // Notify funcsim
+  {
+    std::unique_lock lk(m_proc);
+    if (sim_blocked) {
+      // Notify to wake up
+      sim_blocked = false;
+      cv.notify_one();
+    }
+    // Wait for func sim to process
+    cv.wait(lk, [] { return sim_blocked; });
+  }
+
+
+  if(finished){
+      std::cerr << "VTADeviceRun finished " << std::endl;
+      Registers_.status = 0x4;
+  }
+
   // every time after dma completes, launch the functional simulation. 
-  uint64_t insn_phy_addr = Registers_.insn_phy_addr_hh; 
+  /*uint64_t insn_phy_addr = Registers_.insn_phy_addr_hh; 
   insn_phy_addr = insn_phy_addr << 32 | Registers_.insn_phy_addr_lh;
   uint32_t insn_count = NUM_INSN; //Registers_.insn_count;
   if(!VTADeviceRun(vta_func_device, insn_phy_addr, insn_count, 10000000)){
       std::cerr << "VTADeviceRun finished " << std::endl;
       Registers_.status = 0x4;
-  }
+  }*/
 
   // uint64_t next_ts = TimePs();
   // std::cerr << "preparing to send req" << std::endl;
@@ -255,10 +282,22 @@ void VTABm::ExecuteEvent(std::unique_ptr<pciebm::TimedEvent> evt) {
   insn_phy_addr = insn_phy_addr << 32 | Registers_.insn_phy_addr_lh;
   uint32_t insn_count = NUM_INSN;//Registers_.insn_count;
   std::cerr << "insn_phy_addr: " << insn_phy_addr << " insn_count: " << insn_count << std::endl;
-  if(!VTADeviceRun(vta_func_device, insn_phy_addr, insn_count, 10000000)){
+
+
+  if(finished){
       std::cerr << "VTADeviceRun finished " << std::endl;
       Registers_.status = 0x4;
   }
+
+  // every time after dma completes, launch the functional simulation. 
+  /*uint64_t insn_phy_addr = Registers_.insn_phy_addr_hh; 
+  insn_phy_addr = insn_phy_addr << 32 | Registers_.insn_phy_addr_lh;
+  uint32_t insn_count = NUM_INSN; //Registers_.insn_count;
+  if(!VTADeviceRun(vta_func_device, insn_phy_addr, insn_count, 10000000)){
+      std::cerr << "VTADeviceRun finished " << std::endl;
+      Registers_.status = 0x4;
+  }*/
+
   for (auto &kv : dram_req_map) {
     auto &req = frontReq(kv.second);
     if (req == nullptr) continue;

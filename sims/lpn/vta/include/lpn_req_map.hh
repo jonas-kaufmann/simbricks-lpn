@@ -1,32 +1,35 @@
 #ifndef __LPN_REQ_MAP_HH
 #define __LPN_REQ_MAP_HH
 
+#include <assert.h>
 #include <bits/stdint-uintn.h>
+
 #include <cstring>
 #include <iostream>
-#include <memory>
-#include <vector>
 #include <map>
+#include <memory>
+#include <mutex>
+#include <condition_variable>
 #include <queue>
-#include <assert.h>
+#include <vector>
 
-typedef struct LpnReq{
-    uint32_t id;
-    bool rw;
-    uint32_t len;
-    uint32_t acquired_len; 
+typedef struct LpnReq {
+  uint32_t id;
+  bool rw;
+  uint32_t len;
+  uint32_t acquired_len;
 } LpnReq;
 
 #define READ_REQ 0
 #define WRITE_REQ 1
 
-typedef struct DramReq{
-    uint32_t id;
-    uint64_t addr;
-    uint32_t len;
-    uint32_t acquired_len;
-    bool inflight;
-    bool rw;
+typedef struct DramReq {
+  uint32_t id;
+  uint64_t addr;
+  uint32_t len;
+  uint32_t acquired_len;
+  bool inflight;
+  bool rw;
 } DramReq;
 
 extern std::map<int, std::queue<std::unique_ptr<LpnReq>>> lpn_req_map;
@@ -34,94 +37,119 @@ extern std::map<int, std::queue<std::unique_ptr<DramReq>>> dram_req_map;
 
 void setupReqQueues(const std::vector<int>& ids);
 
-template<typename T>
+template <typename T>
 std::unique_ptr<T>& frontReq(std::queue<std::unique_ptr<T>>& reqQueue) {
-    return reqQueue.front();
+  return reqQueue.front();
 }
 
-template<typename T>
-void enqueueReq(std::queue<std::unique_ptr<T>>& reqQueue, std::unique_ptr<T>& req) {
-    reqQueue.push(std::move(req));
+template <typename T>
+void enqueueReq(std::queue<std::unique_ptr<T>>& reqQueue,
+                std::unique_ptr<T>& req) {
+  reqQueue.push(std::move(req));
 }
 
-template<typename T>
+template <typename T>
 std::unique_ptr<T> dequeueReq(std::queue<std::unique_ptr<T>>& reqQueue) {
-    std::unique_ptr<T> req = std::move(reqQueue.front());
-    reqQueue.pop();
-    return req;
+  std::unique_ptr<T> req = std::move(reqQueue.front());
+  reqQueue.pop();
+  return req;
 }
 
 class FixedDoubleBuffer {
-private:
-    uint8_t* buffers_[2]; // Array of two buffers
-    int currentBuffer_; // Index of the buffer currently in use for writing
-    size_t bufferSize_; // Size of each buffer
-    size_t readPtr_; // Read pointer in the current buffer
-    size_t dataLen_; // Amount of valid data in the current buffer
+ private:
+  uint8_t* buffers_[2];  // Array of two buffers
+  int currentBuffer_;    // Index of the buffer currently in use for writing
+  size_t bufferSize_;    // Size of each buffer
+  size_t readPtr_;       // Read pointer in the current buffer
+  size_t dataLen_;       // Amount of valid data in the current buffer
 
-public:
-    FixedDoubleBuffer(size_t size)
-        : currentBuffer_(0), bufferSize_(size), readPtr_(0), dataLen_(0) {
-        buffers_[0] = new uint8_t[size];
-        buffers_[1] = new uint8_t[size];
-        memset(buffers_[0], 0, size);
-        memset(buffers_[1], 0, size);
-    }
+ public:
+  FixedDoubleBuffer(size_t size)
+      : currentBuffer_(0), bufferSize_(size), readPtr_(0), dataLen_(0) {
+    buffers_[0] = new uint8_t[size];
+    buffers_[1] = new uint8_t[size];
+    memset(buffers_[0], 0, size);
+    memset(buffers_[1], 0, size);
+  }
 
-    ~FixedDoubleBuffer() {
-        delete[] buffers_[0];
-        delete[] buffers_[1];
-    }
+  ~FixedDoubleBuffer() {
+    delete[] buffers_[0];
+    delete[] buffers_[1];
+  }
 
-    void supply(uint8_t * data, size_t len) {
-        size_t spaceAvailable = bufferSize_ - dataLen_ - readPtr_;
-        if (len <= spaceAvailable) {
-            // If new data fits in the current buffer, copy it there
-            memcpy(buffers_[currentBuffer_] + readPtr_ + dataLen_, data, len);
-            dataLen_ += len;
-        } else {
-            // Not enough space, so switch buffers
-            int newBuffer = 1 - currentBuffer_;
-            memcpy(buffers_[newBuffer], buffers_[currentBuffer_] + readPtr_, dataLen_); // Copy existing valid data to new buffer
-            assert( dataLen_+len <= bufferSize_);
-            memcpy(buffers_[newBuffer] + dataLen_, data, len); // Append new data
-            currentBuffer_ = newBuffer;
-            readPtr_ = 0; // Reset read pointer
-            dataLen_ += len; // Update valid data length
-        }
+  void supply(uint8_t* data, size_t len) {
+    size_t spaceAvailable = bufferSize_ - dataLen_ - readPtr_;
+    if (len <= spaceAvailable) {
+      // If new data fits in the current buffer, copy it there
+      memcpy(buffers_[currentBuffer_] + readPtr_ + dataLen_, data, len);
+      dataLen_ += len;
+    } else {
+      // Not enough space, so switch buffers
+      int newBuffer = 1 - currentBuffer_;
+      memcpy(buffers_[newBuffer], buffers_[currentBuffer_] + readPtr_,
+             dataLen_);  // Copy existing valid data to new buffer
+      assert(dataLen_ + len <= bufferSize_);
+      memcpy(buffers_[newBuffer] + dataLen_, data, len);  // Append new data
+      currentBuffer_ = newBuffer;
+      readPtr_ = 0;     // Reset read pointer
+      dataLen_ += len;  // Update valid data length
     }
+  }
 
-    uint8_t* getHead() const {
-        return buffers_[currentBuffer_] + readPtr_;
-    }
+  uint8_t* getHead() const {
+    return buffers_[currentBuffer_] + readPtr_;
+  }
 
-    void pop(size_t len) {
-        // Adjust read pointer and data length without moving data
-        size_t popLength = std::min(len, dataLen_);
-        // Clear popped data (optional)
-        // memset(buffers_[currentBuffer_] + readPtr_, 0, popLength); 
-        readPtr_ += popLength;
-        dataLen_ -= popLength;
-        
-        // If all data is consumed, reset readPtr for potential reuse of this buffer space
-        if (dataLen_ == 0) {
-            readPtr_ = 0;
-        }
-    }
+  void pop(size_t len) {
+    // Adjust read pointer and data length without moving data
+    size_t popLength = std::min(len, dataLen_);
+    // Clear popped data (optional)
+    // memset(buffers_[currentBuffer_] + readPtr_, 0, popLength);
+    readPtr_ += popLength;
+    dataLen_ -= popLength;
 
-    size_t getLength() const {
-        return dataLen_;
+    // If all data is consumed, reset readPtr for potential reuse of this buffer
+    // space
+    if (dataLen_ == 0) {
+      readPtr_ = 0;
     }
+  }
 
-    void setLength(size_t len) {
-        // Check if there is enough space in the buffer
-        assert(readPtr_+dataLen_ <= bufferSize_); 
-        dataLen_ = len;
-    }
+  size_t getLength() const {
+    return dataLen_;
+  }
+
+  void setLength(size_t len) {
+    // Check if there is enough space in the buffer
+    assert(readPtr_ + dataLen_ <= bufferSize_);
+    dataLen_ = len;
+  }
 };
 
 extern std::map<int, std::unique_ptr<FixedDoubleBuffer>> read_buffer_map;
 extern std::map<int, std::unique_ptr<FixedDoubleBuffer>> write_buffer_map;
+extern std::mutex m_lpn;
+extern std::mutex m_dram;
+extern std::mutex m_write;
+
+extern std::condition_variable cv;
+extern std::mutex m_proc;
+extern bool sim_blocked;
+
+extern bool sim_req;
+extern bool wrap_req;
+
+extern bool sim_run;
+
+
+
+extern std::condition_variable cv_req;
+extern std::condition_variable cv_resp;
+extern std::mutex m_req;
+extern std::mutex m_resp;
+extern bool wait_req;
+extern bool wait_resp;
+extern bool finished;
 
 void setupBufferMap(const std::vector<int>& ids);
 
