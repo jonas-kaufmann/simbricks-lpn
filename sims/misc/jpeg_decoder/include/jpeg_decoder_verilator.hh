@@ -27,118 +27,65 @@
 #include <verilated_vcd_c.h>
 
 #include <cstdint>
-#include <utility>
 
-#include <simbricks/rtl/axi/axi.hh>
+#include <simbricks/rtl/axi/axi_subordinate.hh>
+#include <simbricks/rtl/axi/axil_manager.hh>
 
-#include "mmio.hh"
-
-// interfaces with AXI4 master port that JPEG decoder block uses for DMA
-class JpegDecoderMemReader : public AXIReader {
- protected:
-  void doRead(AXIOperationT *axi_op) override;
-
+// handles DMA read requests
+using AXISubordinateReadT = simbricks::AXISubordinateRead<4, 1, 4, 64>;
+class JpegDecAXISubordinateRead : public AXISubordinateReadT {
  public:
-  explicit JpegDecoderMemReader(Vjpeg_decoder &top) {
-    // set up address port
-    addrP_.addr_bits = 32;
-    addrP_.id_bits = 4;
-
-    addrP_.ready = &top.m_axi_arready;
-    addrP_.valid = &top.m_axi_arvalid;
-    addrP_.addr = &top.m_axi_araddr;
-    addrP_.id = &top.m_axi_arid;
-    addrP_.len = &top.m_axi_arlen;
-    addrP_.size = &axi_size_;
-    addrP_.burst = &top.m_axi_arburst;
-
-    // set up data port
-    dataP_.data_bits = 32;
-    dataP_.id_bits = 4;
-
-    dataP_.ready = &top.m_axi_rready;
-    dataP_.valid = &top.m_axi_rvalid;
-    dataP_.data = &top.m_axi_rdata;
-    dataP_.resp = &top.m_axi_rresp;
-    dataP_.last = &top.m_axi_rlast;
-    dataP_.id = &top.m_axi_rid;
+  explicit JpegDecAXISubordinateRead(Vjpeg_decoder &top)
+      : AXISubordinateReadT(
+            reinterpret_cast<uint8_t *>(&top.m_axi_araddr), &top.m_axi_arid,
+            top.m_axi_arready, top.m_axi_arvalid, top.m_axi_arlen, axi_size_,
+            top.m_axi_arburst, reinterpret_cast<uint8_t *>(&top.m_axi_rdata),
+            &top.m_axi_rid, top.m_axi_rready, top.m_axi_rvalid,
+            top.m_axi_rlast) {
   }
 
  private:
+  void do_read(const simbricks::AXIOperation &axi_op) final;
+
   CData axi_size_ = 0b010;
 };
 
-// interfaces with AXI4 master port that JPEG decoder block uses for DMA
-class JpegDecoderMemWriter : public AXIWriter {
- protected:
-  void doWrite(AXIOperationT *axi_op) override;
-
+// handles DMA write requests
+using AXISubordinateWriteT = simbricks::AXISubordinateWrite<4, 1, 4>;
+class JpegDecAXISubordinateWrite : public AXISubordinateWriteT {
  public:
-  explicit JpegDecoderMemWriter(Vjpeg_decoder &top) {
-    // set up address port
-    addrP_.addr_bits = 32;
-    addrP_.id_bits = 4;
-
-    addrP_.ready = &top.m_axi_awready;
-    addrP_.valid = &top.m_axi_awvalid;
-    addrP_.addr = &top.m_axi_awaddr;
-    addrP_.id = &top.m_axi_awid;
-    addrP_.len = &top.m_axi_awlen;
-    addrP_.size = &axi_size_;
-    addrP_.burst = &top.m_axi_awburst;
-
-    // set up data port
-    dataP_.data_bits = 32;
-    dataP_.id_bits = 4;
-
-    dataP_.ready = &top.m_axi_wready;
-    dataP_.valid = &top.m_axi_wvalid;
-    dataP_.data = &top.m_axi_wdata;
-    dataP_.strb = &top.m_axi_wstrb;
-    dataP_.last = &top.m_axi_wlast;
-
-    // set up response port
-    respP_.id_bits = 4;
-
-    respP_.ready = &top.m_axi_bready;
-    respP_.valid = &top.m_axi_bvalid;
-    respP_.resp = &top.m_axi_bresp;
-    respP_.id = &top.m_axi_bid;
+  explicit JpegDecAXISubordinateWrite(Vjpeg_decoder &top)
+      : AXISubordinateWriteT(
+            reinterpret_cast<uint8_t *>(&top.m_axi_awaddr), &top.m_axi_awid,
+            top.m_axi_awready, top.m_axi_awvalid, top.m_axi_awlen, axi_size_,
+            top.m_axi_awburst, reinterpret_cast<uint8_t *>(&top.m_axi_wdata),
+            top.m_axi_wready, top.m_axi_wvalid, top.m_axi_wstrb,
+            top.m_axi_wlast, &top.m_axi_bid, top.m_axi_bready, top.m_axi_bvalid,
+            top.m_axi_bresp) {
   }
 
  private:
+  void do_write(const simbricks::AXIOperation &axi_op) final;
+
   CData axi_size_ = 0b010;
 };
 
-// interfaces with JPEG decoder's AXI4 lite slave port for memory-mapped
-// registers
-class JpegDecoderMMIOInterface : public MMIOInterface {
-  static MMIOPorts assignPorts(Vjpeg_decoder &top) {
-    return MMIOPorts{32,
-                     32,
-                     &top.s_axil_awaddr,
-                     top.s_axil_awvalid,
-                     top.s_axil_awready,
-                     &top.s_axil_wdata,
-                     &top.s_axil_wstrb,
-                     top.s_axil_wvalid,
-                     top.s_axil_wready,
-                     top.s_axil_bresp,
-                     top.s_axil_bvalid,
-                     top.s_axil_bready,
-                     &top.s_axil_araddr,
-                     top.s_axil_arvalid,
-                     top.s_axil_arready,
-                     &top.s_axil_rdata,
-                     top.s_axil_rresp,
-                     top.s_axil_rvalid,
-                     top.s_axil_rready};
-  }
-
+// handles host to device register reads / writes
+using AXILManagerT = simbricks::AXILManager<4, 4>;
+class JpegDecAXILManager : public AXILManagerT {
  public:
-  JpegDecoderMMIOInterface(Vjpeg_decoder &top, mmioDoneT mmio_done_callback)
-      : MMIOInterface(std::move(mmio_done_callback), assignPorts(top)) {
+  explicit JpegDecAXILManager(Vjpeg_decoder &top)
+      : AXILManagerT(
+            reinterpret_cast<uint8_t *>(&top.s_axil_araddr), top.s_axil_arready,
+            top.s_axil_arvalid, reinterpret_cast<uint8_t *>(&top.s_axil_rdata),
+            top.s_axil_rready, top.s_axil_rvalid, top.s_axil_rresp,
+            reinterpret_cast<uint8_t *>(&top.s_axil_awaddr), top.s_axil_awready,
+            top.s_axil_awvalid, reinterpret_cast<uint8_t *>(&top.s_axil_wdata),
+            top.s_axil_wready, top.s_axil_wvalid, top.s_axil_wstrb,
+            top.s_axil_bready, top.s_axil_bvalid, top.s_axil_bresp) {
   }
-};
 
-void mmio_done(MMIOOp *mmio_op, uint64_t cur_ts);
+ private:
+  void read_done(simbricks::AXILOperationR &axi_op) final;
+  void write_done(simbricks::AXILOperationW &axi_op) final;
+};

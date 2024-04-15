@@ -22,44 +22,46 @@
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
+#define AXI_R_DEBUG 0
+#define AXI_W_DEBUG 0
+#define JPGD_DEBUG 0
+
 #include "include/jpeg_decoder_verilator.hh"
 
 #include <signal.h>
-#include <string.h>
 
-#include <algorithm>
 #include <cstdlib>
 #include <cstring>
+#include <exception>
 #include <iostream>
+#include <memory>
 #include <sstream>
-#include <type_traits>
 
 #include "include/jpeg_decoder_regs.hh"
 #include "simbricks/base/cxxatomicfix.h"
+#include "simbricks/rtl/axi/axil_manager.hh"
+#include "verilated.h"
 extern "C" {
 #include "simbricks/pcie/if.h"
 }
 
 #include "simbricks/pcie/proto.h"
 
-#define DEBUG 0
+std::unique_ptr<Vjpeg_decoder> top{};
+std::unique_ptr<VerilatedVcdC> trace{};
 
-static VerilatedContext vcontext{};
-static Vjpeg_decoder top{};
-static VerilatedVcdC trace{};
+std::unique_ptr<JpegDecAXISubordinateRead> dma_read{};
+std::unique_ptr<JpegDecAXISubordinateWrite> dma_write{};
+std::unique_ptr<JpegDecAXILManager> reg_read_write{};
 
-static JpegDecoderMemReader jpeg_decoder_mem_reader{top};
-static JpegDecoderMemWriter jpeg_decoder_mem_writer{top};
-static JpegDecoderMMIOInterface jpeg_decoder_mmio{top, mmio_done};
-
-static uint64_t clock_period = 1'000'000 / 150ULL;  // 150 MHz
-static int exiting;
-static bool tracing_active;
-static char *trace_filename;
-static uint64_t trace_nr;
-static uint64_t tracing_start;  // used to make every trace start at 0
-static struct SimbricksPcieIf pcieif;
-static uint64_t cur_ts;
+uint64_t clock_period = 1'000'000 / 150ULL;  // 150 MHz
+int exiting = 0;
+bool tracing_active = false;
+std::string trace_filename{};
+uint64_t trace_nr = 0;
+uint64_t trace_ts_start = 0;  // start timestamp of current trace
+struct SimbricksPcieIf pcieif;
+uint64_t cur_ts = 0;
 
 // Expose control over Verilator simulation through BAR. This represents the
 // underlying memory that's being accessed.
@@ -87,9 +89,9 @@ bool PciIfInit(const char *shm_path,
   struct SimbricksProtoPcieDevIntro d_intro;
   struct SimbricksProtoPcieHostIntro h_intro;
 
-  memset(&pool, 0, sizeof(pool));
-  memset(&ests, 0, sizeof(ests));
-  memset(&d_intro, 0, sizeof(d_intro));
+  std::memset(&pool, 0, sizeof(pool));
+  std::memset(&ests, 0, sizeof(ests));
+  std::memset(&d_intro, 0, sizeof(d_intro));
 
   d_intro.pci_vendor_id = 0xdead;
   d_intro.pci_device_id = 0xbeef;
@@ -142,31 +144,28 @@ void apply_ctrl_changes() {
   // change to tracing_active
   if (!tracing_active && verilator_regs.tracing_active) {
     tracing_active = true;
-    // TODO(Kaufi-Jonas): this doesn't work at the moment
-    // tracing_start = vcontext.time();
     std::ostringstream trace_file{};
-    trace_file << std::string{trace_filename} << "_" << trace_nr << ".vcd";
+    trace_file << trace_filename << "_" << trace_nr << ".vcd";
     std::cout << "trace_file: " << trace_file.str() << "\n";
 
-    top.trace(&trace, 0);
-    trace.open(trace_file.str().c_str());
+    trace->open(trace_file.str().c_str());
     ++trace_nr;
   } else if (tracing_active && !verilator_regs.tracing_active) {
     tracing_active = false;
-    trace.close();
+    trace->close();
   }
 }
 
 bool h2d_read(volatile struct SimbricksProtoPcieH2DRead &read,
               uint64_t cur_ts) {
-#if DEBUG
+#if JPGD_DEBUG
   std::cout << "h2d_read ts=" << cur_ts << " bar=" << static_cast<int>(read.bar)
             << " offset=" << read.offset << " len=" << read.len << "\n";
 #endif
 
   switch (read.bar) {
     case 0: {
-      jpeg_decoder_mmio.issueRead(read.req_id, read.offset, read.len);
+      reg_read_write->issue_read(read.req_id, read.offset);
       break;
     }
     case 1: {
@@ -180,8 +179,9 @@ bool h2d_read(volatile struct SimbricksProtoPcieH2DRead &read,
       volatile union SimbricksProtoPcieD2H *msg = d2h_alloc(cur_ts);
       volatile struct SimbricksProtoPcieD2HReadcomp *readcomp = &msg->readcomp;
       readcomp->req_id = read.req_id;
-      memcpy((void *)readcomp->data, (uint8_t *)&verilator_regs + read.offset,
-             read.len);
+      std::memcpy(const_cast<uint8_t *>(readcomp->data),
+                  reinterpret_cast<uint8_t *>(&verilator_regs) + read.offset,
+                  read.len);
       SimbricksPcieIfD2HOutSend(&pcieif, msg,
                                 SIMBRICKS_PROTO_PCIE_D2H_MSG_READCOMP);
 
@@ -197,18 +197,20 @@ bool h2d_read(volatile struct SimbricksProtoPcieH2DRead &read,
 
 bool h2d_write(volatile struct SimbricksProtoPcieH2DWrite &write,
                uint64_t cur_ts, bool posted) {
-#if DEBUG
+#if JPGD_DEBUG
   std::cout << "h2d_write ts=" << cur_ts
             << " bar=" << static_cast<int>(write.bar)
             << " offset=" << write.offset << " len=" << write.len << "\n";
 #endif
 
-  uint64_t val = 0;
-  memcpy(&val, (void *)write.data, std::min<size_t>(write.len, (sizeof(val))));
-
   switch (write.bar) {
     case 0: {
-      jpeg_decoder_mmio.issueWrite(write.req_id, write.offset, write.len, val);
+      uint32_t data;
+      if (write.len != 4) {
+        throw "h2d_write() JPEG decoder register write needs to be 32 bits";
+      }
+      std::memcpy(&data, const_cast<uint8_t *>(write.data), write.len);
+      reg_read_write->issue_write(write.req_id, write.offset, data, posted);
       break;
     }
     case 1: {
@@ -218,8 +220,8 @@ bool h2d_write(volatile struct SimbricksProtoPcieH2DWrite &write,
             << write.offset << " len=" << write.len << "\n";
         return false;
       }
-      memcpy((reinterpret_cast<uint8_t *>(&verilator_regs)) + write.offset,
-             (void *)write.data, write.len);
+      std::memcpy((reinterpret_cast<uint8_t *>(&verilator_regs)) + write.offset,
+                  const_cast<uint8_t *>(write.data), write.len);
       apply_ctrl_changes();
       break;
     }
@@ -242,16 +244,13 @@ bool h2d_write(volatile struct SimbricksProtoPcieH2DWrite &write,
 
 bool h2d_readcomp(volatile struct SimbricksProtoPcieH2DReadcomp &readcomp,
                   uint64_t cur_ts) {
-  AXIReader::AXIOperationT &axi_op =
-      *(AXIReader::AXIOperationT *)readcomp.req_id;
-  memcpy(axi_op.buf, (void *)readcomp.data, axi_op.len);
-  axi_op.issued_by->readDone(&axi_op);
+  dma_read->read_done(readcomp.req_id, const_cast<uint8_t *>(readcomp.data));
   return true;
 }
 
 bool h2d_writecomp(volatile struct SimbricksProtoPcieH2DWritecomp &writecomp,
                    uint64_t cur_ts) {
-  // noop
+  dma_write->write_done(writecomp.req_id);
   return true;
 }
 
@@ -315,13 +314,12 @@ int main(int argc, char **argv) {
   }
 
   struct SimbricksBaseIfParams if_params;
-  memset(&if_params, 0, sizeof(if_params));
+  std::memset(&if_params, 0, sizeof(if_params));
   SimbricksPcieIfDefaultParams(&if_params);
 
-  vcontext.time(strtoull(argv[3], nullptr, 0));
+  cur_ts = strtoull(argv[3], nullptr, 0);
   if_params.sync_interval = strtoull(argv[4], nullptr, 0) * 1000ULL;
   if_params.link_latency = strtoull(argv[5], nullptr, 0) * 1000ULL;
-  // clock_period = 1000000ULL / strtoull(argv[6], nullptr, 0);
 
   if_params.sock_path = argv[1];
   if (!PciIfInit(argv[2], if_params)) {
@@ -334,22 +332,28 @@ int main(int argc, char **argv) {
   signal(SIGINT, sigint_handler);
   signal(SIGUSR1, sigusr1_handler);
 
-  // setup tracing
-  trace_filename = argv[6];
-  vcontext.traceEverOn(true);
+  trace_filename = std::string(argv[6]);
+
+  // initialize
+  top = std::make_unique<Vjpeg_decoder>();
+  trace = std::make_unique<VerilatedVcdC>();
+  Verilated::traceEverOn(true);
+  top->trace(trace.get(), 0);
+
+  dma_read = std::make_unique<JpegDecAXISubordinateRead>(*top);
+  dma_write = std::make_unique<JpegDecAXISubordinateWrite>(*top);
+  reg_read_write = std::make_unique<JpegDecAXILManager>(*top);
 
   // reset chip
-  top.rst = 1;
-  top.clk = 0;
-  top.eval();
-  top.clk = 1;
-  top.eval();
-  top.rst = 0;
+  top->rst = 1;
+  top->clk = 0;
+  top->eval();
+  top->clk = 1;
+  top->eval();
+  top->rst = 0;
 
   // main simulation loop
   while (!exiting) {
-    cur_ts = vcontext.time();
-
     // send required sync messages
     while (SimbricksPcieIfD2HOutSync(&pcieif, cur_ts) < 0) {
       std::cerr << "warn: SimbricksPcieIfD2HOutSync failed cur_ts=" << cur_ts
@@ -363,113 +367,128 @@ int main(int argc, char **argv) {
              ((sync && SimbricksPcieIfH2DInTimestamp(&pcieif) <= cur_ts)));
 
     // falling edge
-    top.clk = 0;
-    top.eval();
+    top->clk = 0;
+    top->eval();
     if (tracing_active) {
-      trace.dump(cur_ts - tracing_start);
+      trace->dump(cur_ts - trace_ts_start);
     }
-    vcontext.timeInc(clock_period / 2);
+    cur_ts += clock_period / 2;
 
-    // input changes to model
-    cur_ts = vcontext.time();
-    jpeg_decoder_mmio.step(cur_ts);
+    // evaluate on rising edge
+    top->clk = 1;
+    dma_read->step(cur_ts);
+    dma_write->step(cur_ts);
+    reg_read_write->step(cur_ts);
+    top->eval();
 
-    jpeg_decoder_mem_reader.step(cur_ts);
-    jpeg_decoder_mem_writer.step(cur_ts);
+    // finalize updates
+    dma_read->step_apply();
+    dma_write->step_apply();
+    reg_read_write->step_apply();
 
-    // evaluate Verilator model for one tick
-    top.clk = 1;
-    top.eval();
+    // write trace
     if (tracing_active) {
-      trace.dump(cur_ts - tracing_start);
+      trace->dump(cur_ts - trace_ts_start);
     }
-    vcontext.timeInc(clock_period / 2);
+    cur_ts += clock_period / 2;
   }
 
-  trace.close();
-  top.final();
+  top->final();
+  trace = nullptr;
+  top = nullptr;
   return 0;
 }
 
-void JpegDecoderMemReader::doRead(JpegDecoderMemReader::AXIOperationT *axi_op) {
-#if DEBUG
-  std::cout << "JpegDecoderMemReader::doRead() ts=" << this->main_time
-            << " addr=" << axi_op->addr << " len=" << axi_op->len
-            << " off=" << axi_op->off << " step_size=" << axi_op->step_size
-            << "\n";
+void JpegDecAXISubordinateRead::do_read(const simbricks::AXIOperation &axi_op) {
+#if JPGD_DEBUG
+  std::cout << "JpegDecoderMemReader::doRead() ts=" << cur_ts
+            << " id=" << axi_op.id << " addr=" << axi_op.addr
+            << " len=" << axi_op.len << "\n";
 #endif
 
-  volatile union SimbricksProtoPcieD2H *msg = d2h_alloc(main_time_);
-  if (!msg)
-    throw "dma read alloc failed";
+  volatile union SimbricksProtoPcieD2H *msg = d2h_alloc(cur_ts);
+  if (!msg) {
+    throw "JpegDecAXISubordinateRead::doRead() dma read alloc failed";
+  }
 
   unsigned int max_size = SimbricksPcieIfH2DOutMsgLen(&pcieif) -
                           sizeof(SimbricksProtoPcieH2DReadcomp);
-  if (axi_op->len > max_size) {
-    std::cerr << "error: read data of length " << axi_op->len
-              << " doesn't fit into a SimBricks message"
-              << "\n";
-    throw;
+  if (axi_op.len > max_size) {
+    std::cerr << "error: read data of length " << axi_op.len
+              << " doesn't fit into a SimBricks message\n";
+    std::terminate();
   }
 
   volatile struct SimbricksProtoPcieD2HRead *read = &msg->read;
-  read->req_id = (uintptr_t)axi_op;
-  read->offset = axi_op->addr;
-  read->len = axi_op->len;
-
+  read->req_id = axi_op.id;
+  read->offset = axi_op.addr;
+  read->len = axi_op.len;
   SimbricksPcieIfD2HOutSend(&pcieif, msg, SIMBRICKS_PROTO_PCIE_D2H_MSG_READ);
 }
 
-void JpegDecoderMemWriter::doWrite(
-    JpegDecoderMemWriter::AXIOperationT *axi_op) {
-#if DEBUG
-  std::cout << "JpegDecoderMemWriter::doWrite() ts=" << this->main_time
-            << " addr=" << axi_op->addr << " len=" << axi_op->len
-            << " off=" << axi_op->off << " step_size=" << axi_op->step_size
-            << "\n";
+void JpegDecAXISubordinateWrite::do_write(
+    const simbricks::AXIOperation &axi_op) {
+#if JPGD_DEBUG
+  std::cout << "JpegDecoderMemWriter::doWrite() ts=" << cur_ts
+            << " id=" << axi_op.id << " addr=" << axi_op.addr
+            << " len=" << axi_op.len << "\n";
 #endif
 
-  volatile union SimbricksProtoPcieD2H *msg = d2h_alloc(main_time_);
-  if (!msg)
-    throw "dma read alloc failed";
+  volatile union SimbricksProtoPcieD2H *msg = d2h_alloc(cur_ts);
+  if (!msg) {
+    throw "JpegDecoderMemWriter::doWrite() dma read alloc failed";
+  }
 
   volatile struct SimbricksProtoPcieD2HWrite *write = &msg->write;
   unsigned int max_size = SimbricksPcieIfH2DOutMsgLen(&pcieif) - sizeof(*write);
-  if (axi_op->len > max_size) {
-    std::cerr << "error: write data of length " << axi_op->len
-              << " doesn't fit into a SimBricks message"
-              << "\n";
-    throw;
+  if (axi_op.len > max_size) {
+    std::cerr << "error: write data of length " << axi_op.len
+              << " doesn't fit into a SimBricks message\n";
+    std::terminate();
   }
 
-  write->req_id = (uintptr_t)axi_op;
-  write->offset = axi_op->addr;
-  write->len = axi_op->len;
-  memcpy((void *)write->data, axi_op->buf, axi_op->len);
+  write->req_id = axi_op.id;
+  write->offset = axi_op.addr;
+  write->len = axi_op.len;
+  std::memcpy(const_cast<uint8_t *>(write->data), axi_op.buf.get(), axi_op.len);
   SimbricksPcieIfD2HOutSend(&pcieif, msg, SIMBRICKS_PROTO_PCIE_D2H_MSG_WRITE);
-
-  writeDone(axi_op);
 }
 
-void mmio_done(MMIOOp *mmio_op, uint64_t cur_ts) {
-#if DEBUG
-  std::cout << "mmio_done ts=" << cur_ts << " addr=" << mmio_op->addr
-            << " len=" << mmio_op->len << " value=" << mmio_op->value << "\n";
+void JpegDecAXILManager::read_done(simbricks::AXILOperationR &axi_op) {
+#if JPGD_DEBUG
+  std::cout << "JpegDecAXILManager::read_done() ts=" << cur_ts
+            << " id=" << axi_op.req_id << " addr=" << axi_op.addr << "\n";
 #endif
 
-  if (!mmio_op->isWrite) {
-    volatile union SimbricksProtoPcieD2H *msg = d2h_alloc(cur_ts);
-
-    if (!msg)
-      throw "completion alloc failed";
-
-    volatile struct SimbricksProtoPcieD2HReadcomp *readcomp = &msg->readcomp;
-    memcpy((void *)readcomp->data, &mmio_op->value, mmio_op->len);
-    readcomp->req_id = mmio_op->id;
-
-    SimbricksPcieIfD2HOutSend(&pcieif, msg,
-                              SIMBRICKS_PROTO_PCIE_D2H_MSG_READCOMP);
+  volatile union SimbricksProtoPcieD2H *msg = d2h_alloc(cur_ts);
+  if (!msg) {
+    throw "JpegDecAXILManager::read_done() completion alloc failed";
   }
 
-  delete mmio_op;
+  volatile struct SimbricksProtoPcieD2HReadcomp *readcomp = &msg->readcomp;
+  std::memcpy(const_cast<uint8_t *>(readcomp->data), &axi_op.data, 4);
+  readcomp->req_id = axi_op.req_id;
+  SimbricksPcieIfD2HOutSend(&pcieif, msg,
+                            SIMBRICKS_PROTO_PCIE_D2H_MSG_READCOMP);
+}
+
+void JpegDecAXILManager::write_done(simbricks::AXILOperationW &axi_op) {
+#if JPGD_DEBUG
+  std::cout << "JpegDecAXILManager::write_done ts=" << cur_ts
+            << " id=" << axi_op.req_id << " addr=" << axi_op.addr << "\n";
+#endif
+
+  if (axi_op.posted) {
+    return;
+  }
+
+  volatile union SimbricksProtoPcieD2H *msg = d2h_alloc(cur_ts);
+  if (!msg) {
+    throw "JpegDecAXILManager::write_done completion alloc failed";
+  }
+
+  volatile struct SimbricksProtoPcieD2HWritecomp *writecomp = &msg->writecomp;
+  writecomp->req_id = axi_op.req_id;
+  SimbricksPcieIfD2HOutSend(&pcieif, msg,
+                            SIMBRICKS_PROTO_PCIE_D2H_MSG_WRITECOMP);
 }

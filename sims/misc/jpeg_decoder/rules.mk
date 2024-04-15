@@ -29,11 +29,11 @@ verilator_obj_dir := $(d)obj_dir
 bin_jpeg_decoder := $(d)jpeg_decoder_verilator
 verilator_bin_jpeg_decoder := $(verilator_obj_dir)/Vjpeg_decoder
 verilator_mk_jpeg_decoder := $(verilator_bin_jpeg_decoder).mk
-srcs_jpeg_decoder := $(addprefix $(d),jpeg_decoder_verilator.cc mmio.cc)
+srcs_jpeg_decoder := $(addprefix $(d),jpeg_decoder_verilator.cc)
 jpeg_decoder_top := $(d)rtl/src_v/jpeg_decoder.v
 jpeg_decoder_search_paths := $(addprefix $(d),rtl/src_v rtl/jpeg_core/src_v)
 
-$(verilator_mk_jpeg_decoder): $(lib_simbricks) $(lib_verilator_axi)
+$(verilator_mk_jpeg_decoder): $(lib_simbricks)
 	$(VERILATOR) $(VFLAGS) --cc -O3 \
 		--trace --no-trace-top --no-trace-params --trace-underscore \
 		-CFLAGS "-I$(abspath $(lib_dir)) -iquote $(abspath $(base_dir)) -fsanitize=address -Og -g" \
@@ -42,7 +42,6 @@ $(verilator_mk_jpeg_decoder): $(lib_simbricks) $(lib_verilator_axi)
 		--exe \
 		$(addprefix -y ,$(jpeg_decoder_search_paths)) \
 		$(jpeg_decoder_top) \
-		$(abspath $(lib_verilator_axi)) \
 		$(abspath $(lib_simbricks)) \
 		$(abspath $(srcs_jpeg_decoder))
 
