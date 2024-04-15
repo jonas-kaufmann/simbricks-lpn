@@ -22,14 +22,4 @@
 
 include mk/subdir_pre.mk
 
-lib_verilator_axi := $(d)libverilator_axi.a
-
-OBJS := $(addprefix $(d),axi.o)
-
-$(lib_verilator_axi): CPPFLAGS += -Og -ggdb -fno-omit-frame-pointer #-fsanitize=address
-# $(lib_verilator_axi): LDFLAGS += -fsanitize=address -static-libasan
-$(lib_verilator_axi): $(OBJS)
-
-ALL := $(lib_verilator_axi)
-CLEAN := $(lib_verilator_axi) $(OBJS)
 include mk/subdir_post.mk
