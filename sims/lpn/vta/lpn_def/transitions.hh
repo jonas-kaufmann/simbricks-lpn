@@ -5,6 +5,15 @@
 #include "sims/lpn/lpn_common/place_transition.hh"
 #include "places.hh"
 #include "lpn.hh"
+Transition tstart = {
+    .id = "tstart",
+    .delay_f = delay_start(pstart), 
+    .p_input = {&pstart},
+    .pi_w = {take_start_token(pstart)},
+    .pi_w_threshold = {1},
+    .p_output = {&plaunch, &pnumInsn},
+    .po_w = {output_launch_token(pstart), output_pnum_insn(pstart)}, 
+};
 Transition t13 = {
     .id = "t13",
     .delay_f = con_delay(1),

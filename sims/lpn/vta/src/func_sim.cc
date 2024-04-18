@@ -137,7 +137,7 @@ template <int kBits, int kLane, int kMaxNumElem>
 class SRAM {
  public:
   /*! \brief Bytes of single vector element */
-  static const int kElemBytes = (kBits * kLane + 7) / 8;
+static const int kElemBytes = (kBits * kLane + 7) / 8;
   /*! \brief content data type */
   using DType = typename std::aligned_storage<kElemBytes, kElemBytes>::type;
   SRAM() {
@@ -159,54 +159,66 @@ class SRAM {
       return 0;
     DType* sram_ptr = data_ + op->sram_base;
     uint8_t* dram_ptr = reinterpret_cast<uint8_t*>(op->dram_base * kElemBytes);
+
     auto& front = frontReq<DramReq>(dram_req_map[tag]);
 
-    if (front == nullptr || front->addr != (uint64_t)dram_ptr) {
+    int i = 0;
+    for (uint32_t y = 0; y < op->y_size; ++y) {
+      i += kElemBytes * op->x_stride;
+    }
+    auto req = std::make_unique<DramReq>();
+    req->addr = (uint64_t)dram_ptr;
+    req->id = tag;
+    req->rw = READ_REQ;
+    req->len = i;
+    req->buffer = calloc(1, i);
+    enqueueReq<DramReq>(dram_req_map[tag], req);
+
+    // Match LPN requests
+    //Match(tag);  // TODO who should be able to call match??
+
+    /*if (front == nullptr || front->addr != (uint64_t)dram_ptr) {
       auto& lpnfront = frontReq(lpn_req_map[tag]);
 
-      /*if (tag == LOAD_INP_ID && lpnfront == nullptr) {
+      if (tag == LOAD_INP_ID && lpnfront == nullptr) {
         std::cerr << "LOAD inp is moving too fast, and needs to wait for LPN"
                   << std::endl;
         // return 1;
-      }*/
+      }
 
       int incr = 0;
       for (uint32_t y = 0; y < op->y_size; ++y) {
         incr += kElemBytes * op->x_stride;
       }
-
       auto req = std::make_unique<DramReq>();
       req->addr = (uint64_t)dram_ptr;
       req->id = tag;
       req->rw = READ_REQ;
       req->len = incr;
+
       if (tag == LOAD_INP_ID) {
-        /*std::cerr << "enq Load request " << req->addr << " len=" << req->len
+        std::cerr << "enq Load request " << req->addr << " len=" << req->len
                   << " len of lpn=" << lpnfront->len << std::endl;
         if (lpnfront->len != req->len)
-          assert(0);*/
+          assert(0);
       }
       enqueueReq<DramReq>(dram_req_map[tag], req);
       // return 1;
-    }
+    }*/
 
+    std::cout << "Waiting for Load data" << std::endl;
     // Wait for Response
     {
       std::unique_lock lk(m_proc);
-      while (front->acquired_len < front->len) {
-        /*std::cout << "Waiting for load " << front->id
-                  << ", acquired: " << front->acquired_len
-                  << " , required: " << front->len << std::endl;*/
+      while (front->acquired_len < front->len) { 
         sim_blocked = true;
         cv.notify_one();
         cv.wait(lk, [] { return !sim_blocked; });
       }
     }
 
-    dequeueReq<DramReq>(dram_req_map[tag]);
-    // std::cerr << "LOAD finished with len " << front->acquired_len <<
-    // std::endl;
-    dram_ptr = read_buffer_map[tag]->getHead();
+    dram_ptr = reinterpret_cast<uint8_t*>(front->buffer); // TODO change below
+    //dram_ptr = read_buffer_map[tag]->getHead();
 
     uint64_t xtotal = op->x_size + op->x_pad_0 + op->x_pad_1;
     uint32_t ytotal = op->y_size + op->y_pad_0 + op->y_pad_1;
@@ -218,20 +230,24 @@ class SRAM {
     for (uint32_t y = 0; y < op->y_size; ++y) {
       memset(sram_ptr, 0, kElemBytes * op->x_pad_0);
       sram_ptr += op->x_pad_0;
-      // memcpy(sram_ptr, dram_ptr, kElemBytes * op->x_size);
       memcpy(sram_ptr, dram_ptr, kElemBytes * op->x_size);
       sram_ptr += op->x_size;
       memset(sram_ptr, 0, kElemBytes * op->x_pad_1);
       sram_ptr += op->x_pad_1;
       dram_ptr += kElemBytes * op->x_stride;
     }
-    int incr = dram_ptr - read_buffer_map[tag]->getHead();
-    // std::cerr << "incr " << incr <<" acquired " << front->acquired_len <<
-    // std::endl;
+    /*int incr = dram_ptr - read_buffer_map[tag]->getHead(); 
+    std::cerr << "incr " << incr <<" acquired " << front->acquired_len << std::endl;
     assert(incr <= front->acquired_len);
-    // std::cerr << "LOAD succeeds " << std::endl;
-    read_buffer_map[tag]->pop(front->acquired_len);
+    std::cerr << "LOAD succeeds " << std::endl;
+    read_buffer_map[tag]->pop(front->acquired_len);*/
     memset(sram_ptr, 0, kElemBytes * xtotal * op->y_pad_1);
+
+    dequeueReq<DramReq>(dram_req_map[tag]); // TODO must free the associated buffer
+
+    std::cout << "Finished processing Load" << std::endl;
+    while(1){}
+
     return 0;
   }
 
@@ -251,8 +267,7 @@ class SRAM {
     DType* sram_ptr = data_ + op->sram_base;
     // int8_t* dram_ptr = static_cast<int8_t*>(dram->GetAddr(op->dram_base *
     // kElemBytes / factor));
-    int8_t* dram_ptr =
-        reinterpret_cast<int8_t*>(op->dram_base * kElemBytes / factor);
+    int8_t* dram_ptr = reinterpret_cast<int8_t*>(op->dram_base * kElemBytes / factor);
     auto& front = frontReq<DramReq>(dram_req_map[tag]);
     if (front == nullptr || front->addr != (uint64_t)dram_ptr) {
       auto incr = 0;
@@ -465,53 +480,50 @@ class Device {
 
   int Run(vta_phy_addr_t insn_phy_addr, uint32_t insn_count,
           uint32_t wait_cycles) {
-    static uint32_t insn_holder = 0;
-    static bool insn_appended = false;
-    if (insn_holder == insn_count)
-      return 0;
-    auto& front = frontReq<DramReq>(dram_req_map[LOAD_INSN]);
-    assert(front != nullptr);  // should have been filled up before call
 
-    // std::cerr << "LOAD INSN acquired len " << front->acquired_len <<
-    // std::endl;
+    // Enqueue load request
+    auto req = std::make_unique<DramReq>();
+    req->id = LOAD_INSN;
+    req->addr = insn_phy_addr;
+    req->len = insn_count * sizeof(VTAGenericInsn);
+    req->rw = READ_REQ;
+    req->buffer = calloc(1, req->len);
+    enqueueReq<DramReq>(dram_req_map[LOAD_INSN], req);
+    auto& front = frontReq<DramReq>(dram_req_map[LOAD_INSN]);
+
+    std::cout << "Func Sim Registered request" << std::endl;
 
     // Wait for first load instruction
     {
       std::unique_lock lk(m_proc);
-      while (front->acquired_len <= sizeof(VTAGenericInsn) ||
-             read_buffer_map[LOAD_INSN]->getLength() < sizeof(VTAGenericInsn)) {
+      while (front->acquired_len < sizeof(VTAGenericInsn)) {
         sim_blocked = true;
         cv.notify_one();
         cv.wait(lk, [] { return !sim_blocked; });
       }
     }
 
+    uint32_t insn_holder = 0;
+
+    // TODO verify the pointer arithmetic for buffer
     while (1) {
-      auto head = read_buffer_map[LOAD_INSN]->getHead();
-      VTAGenericInsn* insn = reinterpret_cast<VTAGenericInsn*>(head);
-      if (!insn_appended) {
-        MakeInsn(*insn);
-        insn_appended = true;
-      }
+      VTAGenericInsn* insn = reinterpret_cast<VTAGenericInsn*>(front->buffer)+insn_holder;
       vta::sim::Device::Run_Insn(insn, reinterpret_cast<void*>(this));
       std::cout << "Finished Instruction: "  << insn_holder << std::endl;
 
       insn_holder++;
-      insn_appended = false;
-      std::cerr << "insn size " << sizeof(VTAGenericInsn) << std::endl;
-      read_buffer_map[LOAD_INSN]->pop(sizeof(VTAGenericInsn));
 
       // Exit loop on last instruction
       if (insn_holder == insn_count && front->len == front->acquired_len) {
         std::cout << "Last instruction reached!" << std::endl;
-        dequeueReq<DramReq>(dram_req_map[LOAD_INSN]);
+        dequeueReq<DramReq>(dram_req_map[LOAD_INSN]); // TODO must free buffer
         break;
       }
 
       // Wait for INSN buffer to refill
       {
         std::unique_lock lk(m_proc);
-        while (read_buffer_map[LOAD_INSN]->getLength() < sizeof(VTAGenericInsn)) {
+        while (front->acquired_len < (insn_holder + 1) * sizeof(VTAGenericInsn)) {
           sim_blocked = true;
           cv.notify_one();
           cv.wait(lk, [] { return !sim_blocked; });
@@ -522,30 +534,14 @@ class Device {
     // Notify wrapper of end
     {
       std::unique_lock lk(m_proc);
-      finished = true;
+      finished = true; // TODO set back, must also keep unblocking
       sim_blocked = true;
       cv.notify_one();
     }
 
-    /*if (insn_holder == insn_count && front->len == front->acquired_len) {
-      // this->Run(insn + i);
-      std::cout << "dequeue" << std::endl;
-      dequeueReq<DramReq>(dram_req_map[LOAD_INSN]);
-      finished = true;
-      // std::cerr << "LOAD_INSN finished" << std::endl;
-      // std::cerr << "fetched length " << front->acquired_len << std::endl;
-      // std::cerr << "insn count " << insn_count << std::endl;
-      // return 0;
-    }*/
-
-    // return 1;
-    // }
-    //  QT_type(insn_token*)* tokens = new QT_type(insn_token*);
-    //  this->MakeInsns(insn_count, insn, &(pnumInsn.tokens));
-    //  int run_cycles = sim_petri();
-    //  prof_->Update(0, run_cycles);
     return 0;
   }
+
 
  private:
   void MakeInsn(VTAGenericInsn& insn) {
@@ -564,8 +560,8 @@ class Device {
     new_token->push_next = 0;
     new_token->xsize = 0;
     new_token->ysize = 0;
-
     pnumInsn.pushToken(new_token);
+
     NEW_TOKEN(token_class_total_insn, launch_token);
     launch_token->total_insn = 1;
     plaunch.pushToken(launch_token);
@@ -626,6 +622,9 @@ class Device {
       new_token->push_next = static_cast<int>(c.mem.push_next_dep);
       new_token->xsize = static_cast<int>(c.mem.x_size);
       new_token->ysize = static_cast<int>(c.mem.y_size);
+
+      //new_token->dram_ptr = c.mem.dram_base * kElemBytes; TODO
+
       // if (new_token->subopcode == static_cast<int>(ALL_ENUM::LOADUOP)) {
       //   std::cerr << new_token->subopcode << "loadup " << "pop_prev " <<
       //   new_token->pop_prev << " pop_next " << new_token->pop_next << "

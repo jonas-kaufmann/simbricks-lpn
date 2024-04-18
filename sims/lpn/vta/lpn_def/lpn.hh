@@ -11,6 +11,8 @@
 #include "sims/lpn/vta/include/vta/driver.h"
 #include "sims/lpn/vta/lpn_def/all_enum.hh"
 
+#include "sims/lpn/vta/src/parse_tokens.hh"
+
 namespace lpnvta {
     uint64_t CYCLEPERIOD = 1'000'000 / 150;
 }
@@ -208,6 +210,81 @@ std::function<uint64_t()> con_delay(uint64_t constant) {
     };
     return delay;
 };
+
+template<typename T>
+std::function<int()> take_start_token(Place<T>& dependent_place) {
+    auto number_of_token = [&]() -> int {
+        auto loaded = dependent_place.tokens[0]->loaded;
+        auto insn_count = dependent_place.tokens[0]->insn_count;
+        auto& front = frontReq(lpn_req_map[LOAD_INSN]);
+        if (front != nullptr && loaded == insn_count) { // TODO verify conditon
+          std::cout << "Dequeuing LOAD INSN!" << std::endl;
+          dequeueReq(lpn_req_map[LOAD_INSN]);
+          return 1;
+        }
+        return 0;
+    };
+    return number_of_token;
+};
+
+template<typename T>
+std::function<void(BasePlace*)> output_launch_token(Place<T>& dependent_place) {
+    auto output_token = [&](BasePlace* output_place) -> void {
+        output_place->pushToken(MakeLaunchToken());
+    };
+    return output_token;
+};
+
+template<typename T>
+std::function<void(BasePlace*)> output_pnum_insn(Place<T>& dependent_place) {
+    auto output_token = [&](BasePlace* output_place) -> void {
+        auto loaded = dependent_place.tokens[0]->loaded - 1;
+        auto& front = frontReq(lpn_req_map[LOAD_INSN]);
+        output_place->pushToken(MakeNumInsnToken(front->buffer, loaded));
+    };
+    return output_token;
+};
+
+template<typename T>
+std::function<uint64_t()> delay_start(Place<T>& dependent_place) {
+    auto delay = [&]() -> uint64_t {
+        auto addr = dependent_place.tokens[0]->addr;
+        auto insn_count = dependent_place.tokens[0]->insn_count; 
+        auto insn_size = dependent_place.tokens[0]->insn_size; 
+        auto loaded = dependent_place.tokens[0]->loaded; 
+
+        auto& front = frontReq(lpn_req_map[LOAD_INSN]);
+
+        if (front == nullptr) {
+          std::cout << "LPN Enqueuing LOAD INSN" << std::endl;
+          std::cout << loaded << std::endl;
+          std::cout << insn_count << std::endl;
+          // Enqueue Instruction Request
+          auto req = std::make_unique<LpnReq>();
+          req->id = LOAD_INSN;
+          req->addr = addr;
+          req->rw = READ_REQ;
+          req->len = insn_count * insn_size;
+          req->buffer = calloc(1, req->len);
+          enqueueReq<LpnReq>(lpn_req_map[LOAD_INSN], req);
+
+        } else {
+          // Checks if enough has been loaded for new instruction
+          if (front->acquired_len > (loaded + 1) * insn_size) {
+            // TODO fetching multiple instructions at once
+            // need to increment by this much and to add this many tokens
+            // But this is handled
+            ++dependent_place.tokens[0]->loaded;  // TODO probably a hack
+            std::cout << "Fire new LOAD INSN: "
+                      << dependent_place.tokens[0]->loaded << std::endl;
+            return 0;
+          }
+        }
+        return lpn::LARGE;
+    };
+    return delay;
+}
+
 template<typename T>
 std::function<uint64_t()> delay_load(Place<T>& dependent_place) {
     auto delay = [&]() -> uint64_t {
@@ -215,23 +292,62 @@ std::function<uint64_t()> delay_load(Place<T>& dependent_place) {
         auto tstype = dependent_place.tokens[0]->tstype;
         auto xsize = dependent_place.tokens[0]->xsize;
         auto ysize = dependent_place.tokens[0]->ysize;
+        //auto dram_ptr = dependent_place.tokens[0]->dram_ptr;
+        std::cout << "DELAY LOAD" << std::endl;
+        while(1){}
+
+
         if (subopcode == (int)ALL_ENUM::SYNC) {
-            return lpnvta::CYCLEPERIOD*2;
+          return lpnvta::CYCLEPERIOD * 2;
         }
+
+        // Problem: LPN does not model the loading of the instructions
+
+        // TODO cannot set finished variable when func sim has finished, must also wait for LPN
+        // TODO clear up finished situation
+
+        // When is delay_load called ?? Is it at each NextCommitTime?
+
+        // TODO here, should decode address and add to lpn_req_buffer to issue request
+        // TODO should not dequeue from LPN if not consumed yet
+        // TODO update load8
+        // TODO there should be an offset in the token
+        // TODO hack of using loaded to maintain state
+
+        // Question: Aren't the loads supposed to be concurrent? Or are they FIFO per tag, but concurrent accross tags?
+        // Why do we wait to receive a DMA response before issuing the next one??
+        // Question: Should issue request for WGT load aswell??
+        
         if (tstype == (int)ALL_ENUM::INP) {
             auto& front = frontReq(lpn_req_map[LOAD_INP_ID]);
             if(front == nullptr){
                 uint32_t req_len = (((((xsize * ysize) * 1) * 16) * 8)/64*8);
-                NEW_REQ(LOAD_INP_ID, READ_REQ, req_len);
+
+                auto new_req = std::make_unique<LpnReq>(); 
+                new_req->id = LOAD_INP_ID; 
+                new_req->rw = READ_REQ; 
+                new_req->len = req_len; 
+                //new_req->addr = dram_ptr;
+                new_req->buffer = calloc(1, req_len);
+                enqueueReq(lpn_req_map[LOAD_INP_ID], new_req);
+                //std::cout << "BLOCKED: Enqueuing Load" << std::endl;
+                //while(1){}
+
                 return lpn::LARGE;
-            }else{
-                std::cerr << "front->acquired_len: " << front->acquired_len << " need:" << front->len << std::endl;
-                if(front->acquired_len >= front->len){
-                    std::cerr << " dequeue once " << std::endl;
-                    dequeueReq(lpn_req_map[LOAD_INP_ID]);
-                    //can fire instantly
-                    return 0;
-                }
+
+            } else {
+              std::cerr << "front->acquired_len: " << front->acquired_len
+                        << " need:" << front->len << std::endl;
+
+              // TODO should not dequeue if not consumed yet
+              assert(front->consumed);
+
+              if (front->acquired_len >= front->len) {
+                std::cerr << " dequeue once " << std::endl;
+                dequeueReq(lpn_req_map[LOAD_INP_ID]);
+                // can fire instantly
+                return 0;
+              }
             }
             return lpn::LARGE;
             // return lpnvta::CYCLEPERIOD*((1 + 21) + (((((xsize * ysize) * 1) * 16) * 8) / 64));

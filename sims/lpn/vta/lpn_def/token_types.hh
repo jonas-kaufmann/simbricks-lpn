@@ -3,6 +3,14 @@
 #include "sims/lpn/lpn_common/place_transition.hh"
 
 CREATE_TOKEN_TYPE(
+token_start, 
+uint64_t addr=0;
+uint32_t insn_count=0;
+size_t insn_size=0;
+uint64_t loaded=0;
+)
+
+CREATE_TOKEN_TYPE(
 token_class_insn_count,
 int insn_count=0;
 )

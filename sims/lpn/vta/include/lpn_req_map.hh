@@ -4,20 +4,24 @@
 #include <assert.h>
 #include <bits/stdint-uintn.h>
 
+#include <condition_variable>
 #include <cstring>
 #include <iostream>
 #include <map>
 #include <memory>
 #include <mutex>
-#include <condition_variable>
-#include <queue>
+#include <deque>
 #include <vector>
 
 typedef struct LpnReq {
   uint32_t id;
+  bool inflight; 
   bool rw;
+  uint64_t addr;
   uint32_t len;
   uint32_t acquired_len;
+  uint32_t consumed;
+  void* buffer;
 } LpnReq;
 
 #define READ_REQ 0
@@ -28,30 +32,31 @@ typedef struct DramReq {
   uint64_t addr;
   uint32_t len;
   uint32_t acquired_len;
-  bool inflight;
+  bool inflight;  // TODO left for writes, to remove
   bool rw;
+  void* buffer;
 } DramReq;
 
-extern std::map<int, std::queue<std::unique_ptr<LpnReq>>> lpn_req_map;
-extern std::map<int, std::queue<std::unique_ptr<DramReq>>> dram_req_map;
+extern std::map<int, std::deque<std::unique_ptr<LpnReq>>> lpn_req_map;
+extern std::map<int, std::deque<std::unique_ptr<DramReq>>> dram_req_map;
 
 void setupReqQueues(const std::vector<int>& ids);
 
 template <typename T>
-std::unique_ptr<T>& frontReq(std::queue<std::unique_ptr<T>>& reqQueue) {
+std::unique_ptr<T>& frontReq(std::deque<std::unique_ptr<T>>& reqQueue) {
   return reqQueue.front();
 }
 
 template <typename T>
-void enqueueReq(std::queue<std::unique_ptr<T>>& reqQueue,
+void enqueueReq(std::deque<std::unique_ptr<T>>& reqQueue,
                 std::unique_ptr<T>& req) {
-  reqQueue.push(std::move(req));
+  reqQueue.push_back(std::move(req));
 }
 
 template <typename T>
-std::unique_ptr<T> dequeueReq(std::queue<std::unique_ptr<T>>& reqQueue) {
+std::unique_ptr<T> dequeueReq(std::deque<std::unique_ptr<T>>& reqQueue) {
   std::unique_ptr<T> req = std::move(reqQueue.front());
-  reqQueue.pop();
+  reqQueue.pop_front();
   return req;
 }
 
@@ -128,27 +133,10 @@ class FixedDoubleBuffer {
 
 extern std::map<int, std::unique_ptr<FixedDoubleBuffer>> read_buffer_map;
 extern std::map<int, std::unique_ptr<FixedDoubleBuffer>> write_buffer_map;
-extern std::mutex m_lpn;
-extern std::mutex m_dram;
-extern std::mutex m_write;
 
 extern std::condition_variable cv;
 extern std::mutex m_proc;
 extern bool sim_blocked;
-
-extern bool sim_req;
-extern bool wrap_req;
-
-extern bool sim_run;
-
-
-
-extern std::condition_variable cv_req;
-extern std::condition_variable cv_resp;
-extern std::mutex m_req;
-extern std::mutex m_resp;
-extern bool wait_req;
-extern bool wait_resp;
 extern bool finished;
 
 void setupBufferMap(const std::vector<int>& ids);

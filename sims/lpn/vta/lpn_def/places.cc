@@ -3,6 +3,8 @@
 #include "places.hh"
 #include "token_types.hh"
 
+Place<token_start> pstart("pstart");
+
 Place<> pcontrol_prime("pcontrol_prime");
 Place<> pcontrol("pcontrol");
 Place<token_class_insn_count> psReadCmd("psReadCmd");

@@ -3,6 +3,8 @@
 #include "sims/lpn/lpn_common/place_transition.hh"
 #include "token_types.hh"
 
+extern Place<token_start> pstart;
+
 extern Place<> pcontrol_prime;
 extern Place<> pcontrol;
 extern Place<token_class_insn_count> psReadCmd;
