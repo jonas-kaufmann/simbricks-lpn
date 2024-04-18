@@ -229,7 +229,6 @@ void VTABm::DmaComplete(std::unique_ptr<pciebm::DMAOp> dma_op) {
     std::cerr << "VTADeviceRun finished " << std::endl;
     Registers_.status = 0x4;
   }
-
   
   // only starts lpn after the func sim is done
   // Executes delay functions which can fire
