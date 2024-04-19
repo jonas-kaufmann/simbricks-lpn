@@ -160,100 +160,72 @@ static const int kElemBytes = (kBits * kLane + 7) / 8;
     DType* sram_ptr = data_ + op->sram_base;
     uint8_t* dram_ptr = reinterpret_cast<uint8_t*>(op->dram_base * kElemBytes);
 
-    auto& front = frontReq<DramReq>(dram_req_map[tag]);
-
     int i = 0;
     for (uint32_t y = 0; y < op->y_size; ++y) {
       i += kElemBytes * op->x_stride;
     }
+    auto len = i;
+    if (len == 0){
+      return 0;
+    } 
+
     auto req = std::make_unique<DramReq>();
     req->addr = (uint64_t)dram_ptr;
     req->id = tag;
     req->rw = READ_REQ;
     req->len = i;
     req->buffer = calloc(1, i);
-    enqueueReq<DramReq>(dram_req_map[tag], req);
-
-    // Match LPN requests
-    //Match(tag);  // TODO who should be able to call match??
-
-    /*if (front == nullptr || front->addr != (uint64_t)dram_ptr) {
-      auto& lpnfront = frontReq(lpn_req_map[tag]);
-
-      if (tag == LOAD_INP_ID && lpnfront == nullptr) {
-        std::cerr << "LOAD inp is moving too fast, and needs to wait for LPN"
-                  << std::endl;
-        // return 1;
-      }
-
-      int incr = 0;
-      for (uint32_t y = 0; y < op->y_size; ++y) {
-        incr += kElemBytes * op->x_stride;
-      }
-      auto req = std::make_unique<DramReq>();
-      req->addr = (uint64_t)dram_ptr;
-      req->id = tag;
-      req->rw = READ_REQ;
-      req->len = incr;
-
-      if (tag == LOAD_INP_ID) {
-        std::cerr << "enq Load request " << req->addr << " len=" << req->len
-                  << " len of lpn=" << lpnfront->len << std::endl;
-        if (lpnfront->len != req->len)
-          assert(0);
-      }
-      enqueueReq<DramReq>(dram_req_map[tag], req);
-      // return 1;
-    }*/
-
-    std::cout << "Waiting for Load data" << std::endl;
+    enqueueReq<DramReq>(dram_req_map[tag], std::move(req));
+    auto& front = frontReq<DramReq>(dram_req_map[tag]);
     // Wait for Response
-    {
-      std::unique_lock lk(m_proc);
+    if(front != nullptr){
+      std::cout << "Waiting for Load data" << std::endl;
       while (front->acquired_len < front->len) { 
+        std::unique_lock lk(m_proc);
         sim_blocked = true;
-        cv.notify_one();
+        // cv.notify_one();
         cv.wait(lk, [] { return !sim_blocked; });
       }
+
+      dram_ptr = reinterpret_cast<uint8_t*>(front->buffer); 
+      // TODO change below
+      //dram_ptr = read_buffer_map[tag]->getHead();
+      uint64_t xtotal = op->x_size + op->x_pad_0 + op->x_pad_1;
+      uint32_t ytotal = op->y_size + op->y_pad_0 + op->y_pad_1;
+      uint64_t sram_end = op->sram_base + xtotal * ytotal;
+      CHECK_LE(sram_end, kMaxNumElem);
+      memset(sram_ptr, 0, kElemBytes * xtotal * op->y_pad_0);
+      sram_ptr += xtotal * op->y_pad_0;
+
+      for (uint32_t y = 0; y < op->y_size; ++y) {
+        memset(sram_ptr, 0, kElemBytes * op->x_pad_0);
+        sram_ptr += op->x_pad_0;
+        memcpy(sram_ptr, dram_ptr, kElemBytes * op->x_size);
+        sram_ptr += op->x_size;
+        memset(sram_ptr, 0, kElemBytes * op->x_pad_1);
+        sram_ptr += op->x_pad_1;
+        dram_ptr += kElemBytes * op->x_stride;
+      }
+      /*int incr = dram_ptr - read_buffer_map[tag]->getHead(); 
+      std::cerr << "incr " << incr <<" acquired " << front->acquired_len << std::endl;
+      assert(incr <= front->acquired_len);
+      std::cerr << "LOAD succeeds " << std::endl;
+      read_buffer_map[tag]->pop(front->acquired_len);*/
+      memset(sram_ptr, 0, kElemBytes * xtotal * op->y_pad_1);
+      // TODO must free the associated buffer
+      dequeueReq<DramReq>(dram_req_map[tag]); 
     }
-
-    dram_ptr = reinterpret_cast<uint8_t*>(front->buffer); // TODO change below
-    //dram_ptr = read_buffer_map[tag]->getHead();
-
-    uint64_t xtotal = op->x_size + op->x_pad_0 + op->x_pad_1;
-    uint32_t ytotal = op->y_size + op->y_pad_0 + op->y_pad_1;
-    uint64_t sram_end = op->sram_base + xtotal * ytotal;
-    CHECK_LE(sram_end, kMaxNumElem);
-    memset(sram_ptr, 0, kElemBytes * xtotal * op->y_pad_0);
-    sram_ptr += xtotal * op->y_pad_0;
-
-    for (uint32_t y = 0; y < op->y_size; ++y) {
-      memset(sram_ptr, 0, kElemBytes * op->x_pad_0);
-      sram_ptr += op->x_pad_0;
-      memcpy(sram_ptr, dram_ptr, kElemBytes * op->x_size);
-      sram_ptr += op->x_size;
-      memset(sram_ptr, 0, kElemBytes * op->x_pad_1);
-      sram_ptr += op->x_pad_1;
-      dram_ptr += kElemBytes * op->x_stride;
-    }
-    /*int incr = dram_ptr - read_buffer_map[tag]->getHead(); 
-    std::cerr << "incr " << incr <<" acquired " << front->acquired_len << std::endl;
-    assert(incr <= front->acquired_len);
-    std::cerr << "LOAD succeeds " << std::endl;
-    read_buffer_map[tag]->pop(front->acquired_len);*/
-    memset(sram_ptr, 0, kElemBytes * xtotal * op->y_pad_1);
-
-    dequeueReq<DramReq>(dram_req_map[tag]); // TODO must free the associated buffer
 
     std::cout << "Finished processing Load" << std::endl;
     while(1){}
-
     return 0;
   }
 
   // This is for load 8bits to ACC only
   int Load_int8(const VTAMemInsn* op, uint64_t* load_counter, bool skip_exec,
                 uint64_t tag) {
+    exit(0);
+
     CHECK_EQ(kBits, VTA_ACC_WIDTH);
 
     // TODO(zhanghao): extend to other width
@@ -275,18 +247,21 @@ static const int kElemBytes = (kBits * kLane + 7) / 8;
         // dram one element is 1 bytes rather than 4 bytes
         incr += kElemBytes / factor * op->x_stride;
       }
-      auto req = std::make_unique<DramReq>();
-      req->addr = (uint64_t)dram_ptr;
-      req->id = tag;
-      req->len = incr;
-      enqueueReq<DramReq>(dram_req_map[tag], req);
+      auto len = incr;
+      if (len > 0){
+        auto req = std::make_unique<DramReq>();
+        req->addr = (uint64_t)dram_ptr;
+        req->id = tag;
+        req->len = incr;
+        enqueueReq<DramReq>(dram_req_map[tag], std::move(req));
+      }
       // return 1;
     }
 
     // Wait for Response
     {
-      std::unique_lock lk(m_proc);
       while (front->acquired_len < front->len) {
+        std::unique_lock lk(m_proc);
         std::cout << "Waiting for load " << front->id
                   << ", acquired: " << front->acquired_len
                   << " , required: " << front->len << std::endl;
@@ -341,30 +316,21 @@ static const int kElemBytes = (kBits * kLane + 7) / 8;
     CHECK_EQ(op->y_pad_0, 0);
     CHECK_EQ(op->y_pad_1, 0);
     int target_width = (target_bits * kLane + 7) / 8;
-    // BitPacker<target_bits> dst(dram->GetAddr(op->dram_base * target_width));
+    auto len = ((op->y_size - 1) * op->x_stride + op->x_size - 1) * kLane + kLane;
+    if (len == 0){
+      return 0;
+    }
+
     uint64_t req_addr = op->dram_base * target_width;
-
-    /*if (front != nullptr && front->addr == (uint64_t)(req_addr)) {
-      // write request has been made
-      // just wait for it to finish
-      if (front->acquired_len == front->len) {
-        dequeueReq(dram_req_map[STORE_ID]);
-        std::cout << "Store complete" << std::endl;
-        // std::cerr << "STORE finished" << std::endl;
-        return 0;
-      } else {
-      }
-    }*/
     BitPacker<kBits> src(data_ + op->sram_base);
-
     auto req = std::make_unique<DramReq>();
     req->addr = req_addr;
     req->id = STORE_ID;
-    req->len =
-        ((op->y_size - 1) * op->x_stride + op->x_size - 1) * kLane + kLane;
+    req->len = len;
     req->rw = WRITE_REQ;
-    BitPacker<target_bits> dst(write_buffer_map[STORE_ID]->getHead());
-    uint8_t* head = write_buffer_map[STORE_ID]->getHead();
+
+    BitPacker<target_bits> dst(req->buffer);
+    uint8_t* head = (uint8_t*) req->buffer;
     int cnt = 0;
     for (uint32_t y = 0; y < op->y_size; ++y) {
       for (uint32_t x = 0; x < op->x_size; ++x) {
@@ -387,23 +353,26 @@ static const int kElemBytes = (kBits * kLane + 7) / 8;
     }
 
     assert(("len mismatch %d %d\n", req->len, cnt) && req->len == cnt);
-    write_buffer_map[STORE_ID]->setLength(req->len);
+    
     // std::cerr << "enq store request " << req->addr << " " << req->len << "
     // target_bits=" << target_bits << " target_width="<< target_width << "
     // KLane=" << kLane<< std::endl;
-    enqueueReq<DramReq>(dram_req_map[STORE_ID], req);
-    auto& front = frontReq(dram_req_map[STORE_ID]);
 
-    // Wait for Write to finish
-    {
-      std::unique_lock lk(m_proc);
-      while (front->acquired_len < front->len) {
-        sim_blocked = true;
-        cv.notify_one();
-        cv.wait(lk, [] { return !sim_blocked; });
-      }
-      dequeueReq(dram_req_map[STORE_ID]);
-    }
+    // disabled stores for now
+    // enqueueReq<DramReq>(dram_req_map[STORE_ID], std::move(req));
+
+    // auto& front = frontReq(dram_req_map[STORE_ID]);
+
+    // // Wait for Write to finish
+    // if (front != nullptr){
+    //   while (front->acquired_len < front->len) {
+    //     std::unique_lock lk(m_proc);
+    //     sim_blocked = true;
+    //     cv.notify_one();
+    //     cv.wait(lk, [] { return !sim_blocked; });
+    //   }
+    //   dequeueReq(dram_req_map[STORE_ID]);
+    // }
     return 0;
   }
 
@@ -488,15 +457,15 @@ class Device {
     req->len = insn_count * sizeof(VTAGenericInsn);
     req->rw = READ_REQ;
     req->buffer = calloc(1, req->len);
-    enqueueReq<DramReq>(dram_req_map[LOAD_INSN], req);
+    enqueueReq<DramReq>(dram_req_map[LOAD_INSN], std::move(req));
     auto& front = frontReq<DramReq>(dram_req_map[LOAD_INSN]);
 
     std::cout << "Func Sim Registered request" << std::endl;
 
     // Wait for first load instruction
     {
-      std::unique_lock lk(m_proc);
       while (front->acquired_len < sizeof(VTAGenericInsn)) {
+        std::unique_lock lk(m_proc);
         sim_blocked = true;
         cv.notify_one();
         cv.wait(lk, [] { return !sim_blocked; });
@@ -522,8 +491,8 @@ class Device {
 
       // Wait for INSN buffer to refill
       {
-        std::unique_lock lk(m_proc);
         while (front->acquired_len < (insn_holder + 1) * sizeof(VTAGenericInsn)) {
+          std::unique_lock lk(m_proc);
           sim_blocked = true;
           cv.notify_one();
           cv.wait(lk, [] { return !sim_blocked; });
@@ -532,12 +501,12 @@ class Device {
     }
 
     // Notify wrapper of end
-    {
-      std::unique_lock lk(m_proc);
-      finished = true; // TODO set back, must also keep unblocking
-      sim_blocked = true;
-      cv.notify_one();
-    }
+    // {
+    //   std::unique_lock lk(m_proc);
+    //   finished = true; // TODO set back, must also keep unblocking
+    //   sim_blocked = true;
+    //   cv.notify_one();
+    // }
 
     return 0;
   }

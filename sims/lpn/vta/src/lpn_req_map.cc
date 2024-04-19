@@ -1,6 +1,7 @@
 #include "sims/lpn/vta/include/lpn_req_map.hh"
 
 std::map<int, std::deque<std::unique_ptr<LpnReq>>> lpn_req_map;
+std::map<int, std::deque<std::unique_ptr<LpnReq>>> lpn_served_req_map;
 std::map<int, std::deque<std::unique_ptr<DramReq>>> dram_req_map;
 
 std::map<int, std::unique_ptr<FixedDoubleBuffer>> read_buffer_map;
@@ -15,6 +16,7 @@ void setupReqQueues(const std::vector<int>& ids) {
   for (const auto& id : ids) {
     lpn_req_map[id] = std::deque<std::unique_ptr<LpnReq>>();
     dram_req_map[id] = std::deque<std::unique_ptr<DramReq>>();
+    lpn_served_req_map[id] = std::deque<std::unique_ptr<LpnReq>>();
   }
 }
 

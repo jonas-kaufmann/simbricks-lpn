@@ -20,6 +20,9 @@ typedef struct LpnReq {
   uint64_t addr;
   uint32_t len;
   uint32_t acquired_len;
+  // need a better name lpnreq can be used for writes as well but 
+  // in the case of writes, consumed from consuming from dram req
+  // in the case of reads, consumed means consumed by dram req
   uint32_t consumed;
   void* buffer;
 } LpnReq;
@@ -38,6 +41,7 @@ typedef struct DramReq {
 } DramReq;
 
 extern std::map<int, std::deque<std::unique_ptr<LpnReq>>> lpn_req_map;
+extern std::map<int, std::deque<std::unique_ptr<LpnReq>>> lpn_served_req_map;
 extern std::map<int, std::deque<std::unique_ptr<DramReq>>> dram_req_map;
 
 void setupReqQueues(const std::vector<int>& ids);
@@ -49,7 +53,7 @@ std::unique_ptr<T>& frontReq(std::deque<std::unique_ptr<T>>& reqQueue) {
 
 template <typename T>
 void enqueueReq(std::deque<std::unique_ptr<T>>& reqQueue,
-                std::unique_ptr<T>& req) {
+                std::unique_ptr<T> req) {
   reqQueue.push_back(std::move(req));
 }
 

@@ -144,9 +144,17 @@ void VTABm::RegWrite(uint8_t bar, uint64_t addr, const void *src,
 void Match(int tag) {
   auto& dreq = frontReq(dram_req_map[tag]);
   if (dreq != nullptr) {
-    for (auto& req : lpn_req_map[tag]) {
+    
+    // clean up the served req map
+    while(1){
+      auto& front = frontReq(lpn_served_req_map[tag]);
+      if (front == nullptr || front->consumed < front->len) break;
+      dequeueReq(lpn_served_req_map[tag]);
+    }
+
+    for (auto& req : lpn_served_req_map[tag]) {
       // Check Req completed or already consumed
-      if (req->consumed == req->acquired_len)
+      if (req->consumed == req->len)
         continue;
       // Check address bounds
       if (req->addr < dreq->addr || req->addr > dreq->addr + dreq->len)
@@ -161,6 +169,39 @@ void Match(int tag) {
   } 
 }
 
+void MatchWrite(int tag) {
+  auto& lpn_req = frontReq(lpn_req_map[tag]);
+  if (lpn_req != nullptr) {
+    for (auto& dreq : dram_req_map[tag]) {
+
+      if (dreq->acquired_len == dreq->len){
+        // consumed all
+        continue;
+      }
+      // no intersection
+      if ((lpn_req->addr + lpn_req->len) < dreq->addr || lpn_req->addr > (dreq->addr + dreq->len))
+        continue;
+
+      // Copy buffer from LPN req into DRAM req 
+      uint32_t offset_into_dreq = 0;
+      uint32_t offset_into_lpn_req = 0;
+      uint32_t len = 0;
+      if (lpn_req->addr < dreq->addr) {
+        len = std::max(lpn_req->addr + lpn_req->len, dreq->addr + dreq->len) - dreq->addr;
+        offset_into_dreq = 0;
+        offset_into_lpn_req = dreq->addr - lpn_req->addr;
+      } else if (lpn_req->addr > dreq->addr) {
+        len = std::max(lpn_req->addr + lpn_req->len, dreq->addr + dreq->len) - lpn_req->addr;
+        offset_into_dreq = lpn_req->addr - dreq->addr;
+        offset_into_lpn_req = 0;
+      }
+      memcpy(lpn_req->buffer + offset_into_lpn_req, dreq->buffer + offset_into_dreq, len);
+      dreq->acquired_len += len;
+      // consume from dreq
+      lpn_req->consumed += len; 
+    }
+  } 
+}
 // Algo For Read
 // 1. Process Read, Match into DRAM buffer
 // 2. Notify FuncSim of new data, let it run until blocked
@@ -199,14 +240,14 @@ void VTABm::DmaComplete(std::unique_ptr<pciebm::DMAOp> dma_op) {
   else {
     // TODO handle writes
     uint32_t tag = dma_op->tag;
-    auto& req = frontReq(dram_req_map[tag]);
-    req->inflight = false;    
-    write_buffer_map[tag]->pop(dma_op->len);
-    req->acquired_len += dma_op->len;
-
     auto& lpn_req = frontReq(lpn_req_map[tag]);
     if (lpn_req != nullptr){
+      lpn_req->inflight = false;    
       lpn_req->acquired_len += dma_op->len;
+      std::cerr << "DMA write completed" <<" acquired len:" << lpn_req->acquired_len << "len" << dma_op->len << std::endl;
+
+    }else{
+      assert(0);
     }
   }
 
@@ -218,8 +259,9 @@ void VTABm::DmaComplete(std::unique_ptr<pciebm::DMAOp> dma_op) {
       sim_blocked = false;
       cv.notify_one();
     }
+    lk.unlock();
     // Wait for func sim to process
-    cv.wait(lk, [] { return sim_blocked; });
+    // cv.wait(lk, [] { return sim_blocked; });
   }
 
   // TODO this indicates func sim has finished, not that write has completed?
@@ -268,10 +310,17 @@ void VTABm::DmaComplete(std::unique_ptr<pciebm::DMAOp> dma_op) {
         IssueDma(std::move(dma_op));
       }
       else{
-        auto dma_op = std::make_unique<VTADmaWriteOp>(req->addr+req->acquired_len, bytes_to_req, req->id);
-        auto write_head = write_buffer_map[req->id]->getHead();
-        std::memcpy(dma_op->buffer, write_head, bytes_to_req);
-        IssueDma(std::move(dma_op));
+        // MatchWrite(kv.first);
+        // if (req->consumed > req->acquired_len) {
+              // auto bytes_to_req = std::min<uint64_t>(req->consumed - req->acquired_len, DMA_BLOCK_SIZE);
+        if (req->len > req->acquired_len) {
+          // consumed more from the dram req
+          std::cerr << "Write req: " << req->id << " len: " << req->len << " acquired_len: " << req->acquired_len << std::endl;
+          auto bytes_to_req = std::min<uint64_t>(req->len - req->acquired_len, DMA_BLOCK_SIZE);
+          auto dma_op = std::make_unique<VTADmaWriteOp>(req->addr+req->acquired_len, bytes_to_req, req->id);
+          IssueDma(std::move(dma_op));
+          std::cerr << "Write req issued " << std::endl;
+        }
       }
       req->inflight = true;
     }
@@ -313,8 +362,8 @@ void VTABm::ExecuteEvent(std::unique_ptr<pciebm::TimedEvent> evt) {
 
   uint64_t insn_phy_addr = Registers_.insn_phy_addr_hh; 
   insn_phy_addr = insn_phy_addr << 32 | Registers_.insn_phy_addr_lh;
-  uint32_t insn_count = NUM_INSN;//Registers_.insn_count;
-  std::cerr << "insn_phy_addr: " << insn_phy_addr << " insn_count: " << insn_count << std::endl;
+  // uint32_t insn_count = NUM_INSN;//Registers_.insn_count;
+  // std::cerr << "insn_phy_addr: " << insn_phy_addr << " insn_count: " << insn_count << std::endl;
 
   // TODO not needed?? finished can only be updated after wrapper wakes up func sim
   if(finished){

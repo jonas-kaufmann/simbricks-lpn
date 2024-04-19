@@ -10,19 +10,47 @@
 #include "sims/lpn/vta/include/lpn_req_map.hh"
 #include "sims/lpn/vta/include/vta/driver.h"
 #include "sims/lpn/vta/lpn_def/all_enum.hh"
-
 #include "sims/lpn/vta/src/parse_tokens.hh"
 
 namespace lpnvta {
     uint64_t CYCLEPERIOD = 1'000'000 / 150;
 }
 
+#define InsertMemOp(tag, rw_req, insn_ptr) \
+   auto& front = frontReq(lpn_req_map[tag]); \
+    if(front == nullptr){ \
+        uint32_t req_len = 0; \
+        uint64_t dram_addr = GetMemOpAddr(tag, (uint64_t)insn_ptr, &req_len); \
+        if (req_len == 0) { \
+            return 0; \
+        } \
+        auto new_req = std::make_unique<LpnReq>(); \
+        new_req->id = tag;  \
+        new_req->rw = rw_req; \
+        new_req->len = req_len; \
+        new_req->addr = dram_addr; \
+        new_req->buffer = calloc(req_len, 1); \
+        enqueueReq(lpn_req_map[tag], std::move(new_req)); \
+        std::cerr << "insert mem op: " << tag <<" addr:"<< dram_addr <<" len:"<< req_len<< std::endl; \
+        return lpn::LARGE;  \
+    } else { \
+        if (front->acquired_len == front->len ) { \
+            std::cerr << "deque mem op finish: " << tag << std::endl; \
+            std::cerr << "log again : front->acquired_len: " << front->acquired_len \
+                << " need:" << front->len << std::endl; \
+            enqueueReq(lpn_served_req_map[tag], dequeueReq(lpn_req_map[tag])); \
+            return 0; \
+        } \
+    } \
+    return lpn::LARGE;  \
+
+
 #define NEW_REQ(id_, rw_, len_) \
     auto new_req = std::make_unique<LpnReq>(); \
     new_req->id = id_; \
     new_req->rw = rw_; \
     new_req->len = len_; \
-    enqueueReq(lpn_req_map[id_], new_req);
+    enqueueReq(lpn_req_map[id_], std::move(new_req));
 
 std::function<int()> con_edge(int constant) {
     auto weight = [&, constant]() -> int {
@@ -198,9 +226,7 @@ std::function<uint64_t()> delay_t9() {
 template<typename T>
 std::function<uint64_t()> delay_store(Place<T>& dependent_place) {
     auto delay = [&]() -> uint64_t {
-        auto xsize = dependent_place.tokens[0]->xsize;
-        auto ysize = dependent_place.tokens[0]->ysize;
-        return lpnvta::CYCLEPERIOD*((27 * (xsize / 8)) * ysize);
+        InsertMemOp(STORE_ID, WRITE_REQ, &(dependent_place.tokens[0]->insn));
     };
     return delay;
 };
@@ -256,18 +282,17 @@ std::function<uint64_t()> delay_start(Place<T>& dependent_place) {
         auto& front = frontReq(lpn_req_map[LOAD_INSN]);
 
         if (front == nullptr) {
-          std::cout << "LPN Enqueuing LOAD INSN" << std::endl;
-          std::cout << loaded << std::endl;
-          std::cout << insn_count << std::endl;
-          // Enqueue Instruction Request
-          auto req = std::make_unique<LpnReq>();
-          req->id = LOAD_INSN;
-          req->addr = addr;
-          req->rw = READ_REQ;
-          req->len = insn_count * insn_size;
-          req->buffer = calloc(1, req->len);
-          enqueueReq<LpnReq>(lpn_req_map[LOAD_INSN], req);
-
+            std::cout << "LPN Enqueuing LOAD INSN" << std::endl;
+            std::cout << loaded << std::endl;
+            std::cout << insn_count << std::endl;
+            // Enqueue Instruction Request
+            auto req = std::make_unique<LpnReq>();
+            req->id = LOAD_INSN;
+            req->addr = addr;
+            req->rw = READ_REQ;
+            req->len = insn_count * insn_size;
+            req->buffer = calloc(1, req->len);
+            enqueueReq<LpnReq>(lpn_req_map[LOAD_INSN], std::move(req));
         } else {
           // Checks if enough has been loaded for new instruction
           if (front->acquired_len > (loaded + 1) * insn_size) {
@@ -288,19 +313,17 @@ std::function<uint64_t()> delay_start(Place<T>& dependent_place) {
 template<typename T>
 std::function<uint64_t()> delay_load(Place<T>& dependent_place) {
     auto delay = [&]() -> uint64_t {
+        uint64_t insn_ptr = (uint64_t)&(dependent_place.tokens[0]->insn);
         auto subopcode = dependent_place.tokens[0]->subopcode;
         auto tstype = dependent_place.tokens[0]->tstype;
         auto xsize = dependent_place.tokens[0]->xsize;
         auto ysize = dependent_place.tokens[0]->ysize;
         //auto dram_ptr = dependent_place.tokens[0]->dram_ptr;
-        std::cout << "DELAY LOAD" << std::endl;
-        while(1){}
-
+        // std::cout << "DELAY LOAD" << std::endl;
 
         if (subopcode == (int)ALL_ENUM::SYNC) {
           return lpnvta::CYCLEPERIOD * 2;
         }
-
         // Problem: LPN does not model the loading of the instructions
 
         // TODO cannot set finished variable when func sim has finished, must also wait for LPN
@@ -317,45 +340,17 @@ std::function<uint64_t()> delay_load(Place<T>& dependent_place) {
         // Question: Aren't the loads supposed to be concurrent? Or are they FIFO per tag, but concurrent accross tags?
         // Why do we wait to receive a DMA response before issuing the next one??
         // Question: Should issue request for WGT load aswell??
-        
+        int tag=0, rw_req=0;
         if (tstype == (int)ALL_ENUM::INP) {
-            auto& front = frontReq(lpn_req_map[LOAD_INP_ID]);
-            if(front == nullptr){
-                uint32_t req_len = (((((xsize * ysize) * 1) * 16) * 8)/64*8);
-
-                auto new_req = std::make_unique<LpnReq>(); 
-                new_req->id = LOAD_INP_ID; 
-                new_req->rw = READ_REQ; 
-                new_req->len = req_len; 
-                //new_req->addr = dram_ptr;
-                new_req->buffer = calloc(1, req_len);
-                enqueueReq(lpn_req_map[LOAD_INP_ID], new_req);
-                //std::cout << "BLOCKED: Enqueuing Load" << std::endl;
-                //while(1){}
-
-                return lpn::LARGE;
-
-            } else {
-              std::cerr << "front->acquired_len: " << front->acquired_len
-                        << " need:" << front->len << std::endl;
-
-              // TODO should not dequeue if not consumed yet
-              assert(front->consumed);
-
-              if (front->acquired_len >= front->len) {
-                std::cerr << " dequeue once " << std::endl;
-                dequeueReq(lpn_req_map[LOAD_INP_ID]);
-                // can fire instantly
-                return 0;
-              }
-            }
-            return lpn::LARGE;
-            // return lpnvta::CYCLEPERIOD*((1 + 21) + (((((xsize * ysize) * 1) * 16) * 8) / 64));
+            // uint32_t req_len = (((((xsize * ysize) * 1) * 16) * 8)/64*8);
+            tag = LOAD_INP_ID;
+            rw_req = READ_REQ;
         }
         if (tstype == (int)ALL_ENUM::WGT) {
-            return lpnvta::CYCLEPERIOD*((1 + 21) + (((((xsize * ysize) * 16) * 16) * 8) / 64));
+            tag = LOAD_WGT_ID;
+            rw_req = READ_REQ;
         }
-        return 0;
+        InsertMemOp(tag, rw_req, insn_ptr);        
     };
     return delay;
 };
@@ -369,16 +364,13 @@ uint64_t delay_gemm(Place<T>& dependent_place) {
 };
 template<typename T>
 uint64_t delay_loadUop(Place<T>& dependent_place) {
-    auto xsize = dependent_place.tokens[0]->xsize;
-    auto ysize = dependent_place.tokens[0]->ysize;
-    return lpnvta::CYCLEPERIOD*((1 + 21) + ((xsize * ((ysize + 2) - (ysize % 2))) / 2));
+    InsertMemOp(LOAD_UOP_ID, READ_REQ, &(dependent_place.tokens[0]->insn));
 };
 template<typename T>
 uint64_t delay_loadAcc(Place<T>& dependent_place) {
-    auto xsize = dependent_place.tokens[0]->xsize;
-    auto ysize = dependent_place.tokens[0]->ysize;
-    return lpnvta::CYCLEPERIOD*((1 + 21) + ((xsize * 8) * ysize));
+    InsertMemOp(LOAD_ACC_ID, READ_REQ, &(dependent_place.tokens[0]->insn));
 };
+
 template<typename T>
 uint64_t delay_alu(Place<T>& dependent_place) {
     auto uop_begin = dependent_place.tokens[0]->uop_begin;
