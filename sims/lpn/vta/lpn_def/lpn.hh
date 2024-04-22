@@ -16,9 +16,28 @@ namespace lpnvta {
     uint64_t CYCLEPERIOD = 1'000'000 / 150;
 }
 
+#define InsertMemOpAddrLen(tag, rw_req, dram_addr, req_len) \
+ auto& front = frontReq(lpn_req_map[tag]); \
+    if(lpn_req_map[tag].empty()){ \
+        auto new_req = std::make_unique<LpnReq>(); \
+        new_req->id = tag;  \
+        new_req->rw = rw_req; \
+        new_req->len = req_len; \
+        new_req->addr = dram_addr; \
+        new_req->buffer = calloc(req_len, 1); \
+        enqueueReq(lpn_req_map[tag], std::move(new_req)); \
+        std::cerr << "insert mem op: " << tag <<" addr:"<< dram_addr <<" len:"<< req_len<< std::endl; \
+        return lpn::LARGE;  \
+    } else { \
+        if (front->acquired_len == front->len ) { \
+            return 0; \
+        } \
+    } \
+    return lpn::LARGE;  \
+
 #define InsertMemOp(tag, rw_req, insn_ptr) \
    auto& front = frontReq(lpn_req_map[tag]); \
-    if(front == nullptr){ \
+    if(lpn_req_map[tag].empty()){ \
         uint32_t req_len = 0; \
         uint64_t dram_addr = GetMemOpAddr(tag, (uint64_t)insn_ptr, &req_len); \
         if (req_len == 0) { \
@@ -226,6 +245,7 @@ std::function<uint64_t()> delay_t9() {
 template<typename T>
 std::function<uint64_t()> delay_store(Place<T>& dependent_place) {
     auto delay = [&]() -> uint64_t {
+        return 0;
         InsertMemOp(STORE_ID, WRITE_REQ, &(dependent_place.tokens[0]->insn));
     };
     return delay;
@@ -240,15 +260,7 @@ std::function<uint64_t()> con_delay(uint64_t constant) {
 template<typename T>
 std::function<int()> take_start_token(Place<T>& dependent_place) {
     auto number_of_token = [&]() -> int {
-        auto loaded = dependent_place.tokens[0]->loaded;
-        auto insn_count = dependent_place.tokens[0]->insn_count;
-        auto& front = frontReq(lpn_req_map[LOAD_INSN]);
-        if (front != nullptr && loaded == insn_count) { // TODO verify conditon
-          std::cout << "Dequeuing LOAD INSN!" << std::endl;
-          dequeueReq(lpn_req_map[LOAD_INSN]);
-          return 1;
-        }
-        return 0;
+        return 1;
     };
     return number_of_token;
 };
@@ -264,9 +276,7 @@ std::function<void(BasePlace*)> output_launch_token(Place<T>& dependent_place) {
 template<typename T>
 std::function<void(BasePlace*)> output_pnum_insn(Place<T>& dependent_place) {
     auto output_token = [&](BasePlace* output_place) -> void {
-        auto loaded = dependent_place.tokens[0]->loaded - 1;
-        auto& front = frontReq(lpn_req_map[LOAD_INSN]);
-        output_place->pushToken(MakeNumInsnToken(front->buffer, loaded));
+        output_place->pushToken(MakeNumInsnToken(&(dependent_place.tokens[0]->insn), 0));
     };
     return output_token;
 };
@@ -274,36 +284,30 @@ std::function<void(BasePlace*)> output_pnum_insn(Place<T>& dependent_place) {
 template<typename T>
 std::function<uint64_t()> delay_start(Place<T>& dependent_place) {
     auto delay = [&]() -> uint64_t {
-        auto addr = dependent_place.tokens[0]->addr;
-        auto insn_count = dependent_place.tokens[0]->insn_count; 
-        auto insn_size = dependent_place.tokens[0]->insn_size; 
-        auto loaded = dependent_place.tokens[0]->loaded; 
-
+        auto dram_addr = dependent_place.tokens[0]->addr;
+        auto req_len = dependent_place.tokens[0]->insn_size; 
+        auto tag = LOAD_INSN;
         auto& front = frontReq(lpn_req_map[LOAD_INSN]);
-
-        if (front == nullptr) {
-            std::cout << "LPN Enqueuing LOAD INSN" << std::endl;
-            std::cout << loaded << std::endl;
-            std::cout << insn_count << std::endl;
-            // Enqueue Instruction Request
-            auto req = std::make_unique<LpnReq>();
-            req->id = LOAD_INSN;
-            req->addr = addr;
-            req->rw = READ_REQ;
-            req->len = insn_count * insn_size;
-            req->buffer = calloc(1, req->len);
-            enqueueReq<LpnReq>(lpn_req_map[LOAD_INSN], std::move(req));
+        std::cerr << "call delay start: " << dram_addr << " " << req_len << "queue empty?"<< lpn_req_map[LOAD_INSN].empty() << " front:" << front.get() << std::endl;
+        if(lpn_req_map[LOAD_INSN].empty()){
+            auto new_req = std::make_unique<LpnReq>();
+            new_req->id = tag;
+            new_req->rw = READ_REQ;
+            new_req->len = req_len;
+            new_req->addr = dram_addr;
+            new_req->buffer = calloc(req_len, 1);
+            enqueueReq(lpn_req_map[tag], std::move(new_req));
+            std::cerr << "insert mem op: " << tag <<" addr:"<< dram_addr <<" len:"<< req_len<< std::endl;
+            return lpn::LARGE;
         } else {
-          // Checks if enough has been loaded for new instruction
-          if (front->acquired_len > (loaded + 1) * insn_size) {
-            // TODO fetching multiple instructions at once
-            // need to increment by this much and to add this many tokens
-            // But this is handled
-            ++dependent_place.tokens[0]->loaded;  // TODO probably a hack
-            std::cout << "Fire new LOAD INSN: "
-                      << dependent_place.tokens[0]->loaded << std::endl;
-            return 0;
-          }
+            if (front->acquired_len == front->len ) {
+                dependent_place.tokens[0]->insn.data1_ = *(uint64_t*)front->buffer; 
+                dependent_place.tokens[0]->insn.data2_ = *((uint64_t*)front->buffer+1);
+                std::cerr << "deque mem op finish: " << tag <<" addr:" <<front->addr << std::endl;
+                auto deq = dequeueReq(lpn_req_map[LOAD_INSN]);
+                enqueueReq(lpn_served_req_map[LOAD_INSN], std::move(deq));
+                return 10;
+            }
         }
         return lpn::LARGE;
     };

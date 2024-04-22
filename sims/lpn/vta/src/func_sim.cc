@@ -161,9 +161,12 @@ static const int kElemBytes = (kBits * kLane + 7) / 8;
     uint8_t* dram_ptr = reinterpret_cast<uint8_t*>(op->dram_base * kElemBytes);
 
     int i = 0;
+    
     for (uint32_t y = 0; y < op->y_size; ++y) {
       i += kElemBytes * op->x_stride;
     }
+
+    std::cout << "Funcsim: Load " << i << " bytes" << " ysize " << op->y_size << " xsize " << op->x_size << " xstride " << op->x_stride << " kbytes " << kElemBytes << std::endl;
     auto len = i;
     if (len == 0){
       return 0;
@@ -183,10 +186,9 @@ static const int kElemBytes = (kBits * kLane + 7) / 8;
       while (front->acquired_len < front->len) { 
         std::unique_lock lk(m_proc);
         sim_blocked = true;
-        // cv.notify_one();
+        cv.notify_one();
         cv.wait(lk, [] { return !sim_blocked; });
       }
-
       dram_ptr = reinterpret_cast<uint8_t*>(front->buffer); 
       // TODO change below
       //dram_ptr = read_buffer_map[tag]->getHead();
@@ -206,25 +208,27 @@ static const int kElemBytes = (kBits * kLane + 7) / 8;
         sram_ptr += op->x_pad_1;
         dram_ptr += kElemBytes * op->x_stride;
       }
+      memset(sram_ptr, 0, kElemBytes * xtotal * op->y_pad_1);
+
       /*int incr = dram_ptr - read_buffer_map[tag]->getHead(); 
       std::cerr << "incr " << incr <<" acquired " << front->acquired_len << std::endl;
       assert(incr <= front->acquired_len);
       std::cerr << "LOAD succeeds " << std::endl;
       read_buffer_map[tag]->pop(front->acquired_len);*/
-      memset(sram_ptr, 0, kElemBytes * xtotal * op->y_pad_1);
       // TODO must free the associated buffer
+
       dequeueReq<DramReq>(dram_req_map[tag]); 
     }
 
     std::cout << "Finished processing Load" << std::endl;
-    while(1){}
+    // while(1){}
     return 0;
   }
 
   // This is for load 8bits to ACC only
   int Load_int8(const VTAMemInsn* op, uint64_t* load_counter, bool skip_exec,
                 uint64_t tag) {
-    exit(0);
+    assert(0);
 
     CHECK_EQ(kBits, VTA_ACC_WIDTH);
 
@@ -241,7 +245,7 @@ static const int kElemBytes = (kBits * kLane + 7) / 8;
     // kElemBytes / factor));
     int8_t* dram_ptr = reinterpret_cast<int8_t*>(op->dram_base * kElemBytes / factor);
     auto& front = frontReq<DramReq>(dram_req_map[tag]);
-    if (front == nullptr || front->addr != (uint64_t)dram_ptr) {
+    if (dram_req_map.empty() || front->addr != (uint64_t)dram_ptr) {
       auto incr = 0;
       for (uint32_t y = 0; y < op->y_size; ++y) {
         // dram one element is 1 bytes rather than 4 bytes
@@ -328,6 +332,7 @@ static const int kElemBytes = (kBits * kLane + 7) / 8;
     req->id = STORE_ID;
     req->len = len;
     req->rw = WRITE_REQ;
+    req->buffer = calloc(req->len, 1);
 
     BitPacker<target_bits> dst(req->buffer);
     uint8_t* head = (uint8_t*) req->buffer;
@@ -456,7 +461,7 @@ class Device {
     req->addr = insn_phy_addr;
     req->len = insn_count * sizeof(VTAGenericInsn);
     req->rw = READ_REQ;
-    req->buffer = calloc(1, req->len);
+    req->buffer = calloc(req->len, 1);
     enqueueReq<DramReq>(dram_req_map[LOAD_INSN], std::move(req));
     auto& front = frontReq<DramReq>(dram_req_map[LOAD_INSN]);
 
@@ -464,7 +469,9 @@ class Device {
 
     // Wait for first load instruction
     {
-      while (front->acquired_len < sizeof(VTAGenericInsn)) {
+      // while (front->acquired_len < sizeof(VTAGenericInsn)) {
+      while (front->acquired_len < front->len) {
+        // std::cerr << "Waiting for Load insn" << front->acquired_len << std::endl;
         std::unique_lock lk(m_proc);
         sim_blocked = true;
         cv.notify_one();
@@ -473,44 +480,36 @@ class Device {
     }
 
     uint32_t insn_holder = 0;
-
+    std::cerr << "Starting Run insn" << std::endl;
     // TODO verify the pointer arithmetic for buffer
     while (1) {
       VTAGenericInsn* insn = reinterpret_cast<VTAGenericInsn*>(front->buffer)+insn_holder;
       vta::sim::Device::Run_Insn(insn, reinterpret_cast<void*>(this));
       std::cout << "Finished Instruction: "  << insn_holder << std::endl;
-
+      // exit(0);
       insn_holder++;
 
       // Exit loop on last instruction
       if (insn_holder == insn_count && front->len == front->acquired_len) {
-        std::cout << "Last instruction reached!" << std::endl;
-        dequeueReq<DramReq>(dram_req_map[LOAD_INSN]); // TODO must free buffer
+        // TODO must free buffer
+        dequeueReq<DramReq>(dram_req_map[LOAD_INSN]); 
         break;
       }
-
-      // Wait for INSN buffer to refill
-      {
-        while (front->acquired_len < (insn_holder + 1) * sizeof(VTAGenericInsn)) {
-          std::unique_lock lk(m_proc);
-          sim_blocked = true;
-          cv.notify_one();
-          cv.wait(lk, [] { return !sim_blocked; });
-        }
-      }
     }
-
+    std::cout << "Last instruction reached!" << std::endl;
     // Notify wrapper of end
-    // {
-    //   std::unique_lock lk(m_proc);
-    //   finished = true; // TODO set back, must also keep unblocking
-    //   sim_blocked = true;
-    //   cv.notify_one();
-    // }
+    {
+      std::unique_lock lk(m_proc);
+      // TODO set back, must also keep unblocking
+      std::cerr << "Set finish to True!" << std::endl;
+      finished = true; 
+      sim_blocked = false;
+      cv.notify_one();
+      lk.unlock();
+    }
 
     return 0;
   }
-
 
  private:
   void MakeInsn(VTAGenericInsn& insn) {
@@ -662,35 +661,27 @@ class Device {
     int ans = 0;
     switch (mem->opcode) {
       case VTA_OPCODE_LOAD:
-        ans = device->RunLoad(mem);
-        if (ans == 0) {
-          std::cerr << "opcode  "
+        std::cout << "opcode  "
                     << "VTA OPCODE LOAD" << std::endl;
-        }
+        ans = device->RunLoad(mem);
         return ans;
         break;
       case VTA_OPCODE_STORE:
-        ans = device->RunStore(mem);
-        if (ans == 0) {
-          std::cerr << "opcode  "
+        std::cout << "opcode  "
                     << "VTA OPCODE STORE" << std::endl;
-        }
+        ans = device->RunStore(mem);
         return ans;
         break;
       case VTA_OPCODE_GEMM:
-        ans = device->RunGEMM(gem);
-        if (ans == 0) {
-          std::cerr << "opcode  "
+        std::cout << "opcode  "
                     << "VTA OPCODE GEMM" << std::endl;
-        } 
+        ans = device->RunGEMM(gem);
         return ans;
         break;
       case VTA_OPCODE_ALU:
-        ans = device->RunALU(alu);
-        if (ans == 0) {
-          std::cerr << "opcode  "
+        std::cout << "opcode  "
                     << "VTA OPCODE ALU" << std::endl;
-        }
+        ans = device->RunALU(alu);
         return ans;
         break;
       case VTA_OPCODE_FINISH:
@@ -709,25 +700,24 @@ class Device {
     if (op->x_size == 0)
       return 0;
     if (op->memory_type == VTA_MEM_ID_INP) {
-      // std::cerr << "memory_type " << "VTA_MEM_ID_INP" << std::endl;
+      std::cout << "memory_type " << "VTA_MEM_ID_INP" << std::endl;
       return inp_.Load(op, &(prof_->inp_load_nbytes), prof_->SkipExec(),
                        LOAD_INP_ID);
     } else if (op->memory_type == VTA_MEM_ID_WGT) {
-      // std::cerr << "memory_type " << "VTA_MEM_ID_WGT" << std::endl;
+      std::cout << "memory_type " << "VTA_MEM_ID_WGT" << std::endl;
       return wgt_.Load(op, &(prof_->wgt_load_nbytes), prof_->SkipExec(),
                        LOAD_WGT_ID);
     } else if (op->memory_type == VTA_MEM_ID_ACC) {
-      // std::cerr << "memory_type " << "VTA_MEM_ID_ACC" << std::endl;
+      std::cout << "memory_type " << "VTA_MEM_ID_ACC" << std::endl;
       return acc_.Load(op, &(prof_->acc_load_nbytes), prof_->SkipExec(),
                        LOAD_ACC_ID);
     } else if (op->memory_type == VTA_MEM_ID_UOP) {
-      // std::cerr << "memory_type " << "VTA_MEM_ID_UOP" << std::endl;
+      std::cout << "memory_type " << "VTA_MEM_ID_UOP" << std::endl;
       //  always load in uop, since uop is stateful
       //  subsequent non-debug mode exec can depend on it.
       return uop_.Load(op, &(prof_->uop_load_nbytes), false, LOAD_UOP_ID);
     } else if (op->memory_type == VTA_MEM_ID_ACC_8BIT) {
-      // std::cerr << "memory_type " << "VTA_MEM_ID_ACC_8BIT" << std::endl;
-      std::cout << "LOAD INT8" << std::endl;
+      std::cout << "memory_type " << "VTA_MEM_ID_ACC_8BIT" << std::endl;
       return acc_.Load_int8(op, &(prof_->acc_load_nbytes), prof_->SkipExec(),
                             LOAD_ACC_ID);
     } else {
