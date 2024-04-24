@@ -161,76 +161,64 @@ static const int kElemBytes = (kBits * kLane + 7) / 8;
     uint8_t* dram_ptr = reinterpret_cast<uint8_t*>(op->dram_base * kElemBytes);
 
     int i = 0;
-    
     for (uint32_t y = 0; y < op->y_size; ++y) {
       i += kElemBytes * op->x_stride;
     }
 
-    std::cout << "Funcsim: Load " << i << " bytes" << " ysize " << op->y_size << " xsize " << op->x_size << " xstride " << op->x_stride << " kbytes " << kElemBytes << std::endl;
-    auto len = i;
-    if (len == 0){
-      return 0;
-    } 
-
+    // Enqueue Request
     auto req = std::make_unique<DramReq>();
     req->addr = (uint64_t)dram_ptr;
     req->id = tag;
     req->rw = READ_REQ;
     req->len = i;
     req->buffer = calloc(1, i);
-    enqueueReq<DramReq>(dram_req_map[tag], std::move(req));
-    auto& front = frontReq<DramReq>(dram_req_map[tag]);
+
+    // Register Request to be Matched
+    auto& matcher = func_req_map[tag];
+    matcher.Register(std::move(req));
+
     // Wait for Response
-    if(front != nullptr){
-      std::cout << "Waiting for Load data" << std::endl;
-      while (front->acquired_len < front->len) { 
-        std::unique_lock lk(m_proc);
+    {
+      std::unique_lock lk(m_proc);
+      while (!matcher.isCompleted()) {
         sim_blocked = true;
         cv.notify_one();
         cv.wait(lk, [] { return !sim_blocked; });
+        matcher.Match();
       }
-      dram_ptr = reinterpret_cast<uint8_t*>(front->buffer); 
-      // TODO change below
-      //dram_ptr = read_buffer_map[tag]->getHead();
-      uint64_t xtotal = op->x_size + op->x_pad_0 + op->x_pad_1;
-      uint32_t ytotal = op->y_size + op->y_pad_0 + op->y_pad_1;
-      uint64_t sram_end = op->sram_base + xtotal * ytotal;
-      CHECK_LE(sram_end, kMaxNumElem);
-      memset(sram_ptr, 0, kElemBytes * xtotal * op->y_pad_0);
-      sram_ptr += xtotal * op->y_pad_0;
-
-      for (uint32_t y = 0; y < op->y_size; ++y) {
-        memset(sram_ptr, 0, kElemBytes * op->x_pad_0);
-        sram_ptr += op->x_pad_0;
-        memcpy(sram_ptr, dram_ptr, kElemBytes * op->x_size);
-        sram_ptr += op->x_size;
-        memset(sram_ptr, 0, kElemBytes * op->x_pad_1);
-        sram_ptr += op->x_pad_1;
-        dram_ptr += kElemBytes * op->x_stride;
-      }
-      memset(sram_ptr, 0, kElemBytes * xtotal * op->y_pad_1);
-
-      /*int incr = dram_ptr - read_buffer_map[tag]->getHead(); 
-      std::cerr << "incr " << incr <<" acquired " << front->acquired_len << std::endl;
-      assert(incr <= front->acquired_len);
-      std::cerr << "LOAD succeeds " << std::endl;
-      read_buffer_map[tag]->pop(front->acquired_len);*/
-      // TODO must free the associated buffer
-
-      dequeueReq<DramReq>(dram_req_map[tag]); 
     }
+    auto front = matcher.Consume(); 
 
-    std::cout << "Finished processing Load" << std::endl;
-    // while(1){}
+    // Adapt to code
+    dram_ptr = reinterpret_cast<uint8_t*>(front->buffer);
+
+    uint64_t xtotal = op->x_size + op->x_pad_0 + op->x_pad_1;
+    uint32_t ytotal = op->y_size + op->y_pad_0 + op->y_pad_1;
+    uint64_t sram_end = op->sram_base + xtotal * ytotal;
+    CHECK_LE(sram_end, kMaxNumElem);
+    memset(sram_ptr, 0, kElemBytes * xtotal * op->y_pad_0);
+    sram_ptr += xtotal * op->y_pad_0;
+
+    for (uint32_t y = 0; y < op->y_size; ++y) {
+      memset(sram_ptr, 0, kElemBytes * op->x_pad_0);
+      sram_ptr += op->x_pad_0;
+      memcpy(sram_ptr, dram_ptr, kElemBytes * op->x_size);
+      sram_ptr += op->x_size;
+      memset(sram_ptr, 0, kElemBytes * op->x_pad_1);
+      sram_ptr += op->x_pad_1;
+      dram_ptr += kElemBytes * op->x_stride;
+    }
+    memset(sram_ptr, 0, kElemBytes * xtotal * op->y_pad_1);
+
     return 0;
   }
 
   // This is for load 8bits to ACC only
   int Load_int8(const VTAMemInsn* op, uint64_t* load_counter, bool skip_exec,
                 uint64_t tag) {
-    assert(0);
 
-    CHECK_EQ(kBits, VTA_ACC_WIDTH);
+    assert(0);
+    /*CHECK_EQ(kBits, VTA_ACC_WIDTH);
 
     // TODO(zhanghao): extend to other width
     CHECK_EQ(VTA_ACC_WIDTH, 32);
@@ -264,11 +252,8 @@ static const int kElemBytes = (kBits * kLane + 7) / 8;
 
     // Wait for Response
     {
+      std::unique_lock lk(m_proc);
       while (front->acquired_len < front->len) {
-        std::unique_lock lk(m_proc);
-        std::cout << "Waiting for load " << front->id
-                  << ", acquired: " << front->acquired_len
-                  << " , required: " << front->len << std::endl;
         sim_blocked = true;
         cv.notify_one();
         cv.wait(lk, [] { return !sim_blocked; });
@@ -308,6 +293,7 @@ static const int kElemBytes = (kBits * kLane + 7) / 8;
     assert(incr <= front->acquired_len);
     read_buffer_map[tag]->pop(front->acquired_len);
     memset(sram_ptr, 0, kElemBytes * xtotal * op->y_pad_1);
+    */
     return 0;
   }
 
@@ -326,7 +312,10 @@ static const int kElemBytes = (kBits * kLane + 7) / 8;
     }
 
     uint64_t req_addr = op->dram_base * target_width;
+    
     BitPacker<kBits> src(data_ + op->sram_base);
+
+    // Create new store Request
     auto req = std::make_unique<DramReq>();
     req->addr = req_addr;
     req->id = STORE_ID;
@@ -363,21 +352,10 @@ static const int kElemBytes = (kBits * kLane + 7) / 8;
     // target_bits=" << target_bits << " target_width="<< target_width << "
     // KLane=" << kLane<< std::endl;
 
-    // disabled stores for now
-    // enqueueReq<DramReq>(dram_req_map[STORE_ID], std::move(req));
+    // Produce Store request
+    auto& matcher = perf_req_map[STORE_ID];
+    matcher.Produce(std::move(req));
 
-    // auto& front = frontReq(dram_req_map[STORE_ID]);
-
-    // // Wait for Write to finish
-    // if (front != nullptr){
-    //   while (front->acquired_len < front->len) {
-    //     std::unique_lock lk(m_proc);
-    //     sim_blocked = true;
-    //     cv.notify_one();
-    //     cv.wait(lk, [] { return !sim_blocked; });
-    //   }
-    //   dequeueReq(dram_req_map[STORE_ID]);
-    // }
     return 0;
   }
 
@@ -462,197 +440,52 @@ class Device {
     req->len = insn_count * sizeof(VTAGenericInsn);
     req->rw = READ_REQ;
     req->buffer = calloc(req->len, 1);
-    enqueueReq<DramReq>(dram_req_map[LOAD_INSN], std::move(req));
-    auto& front = frontReq<DramReq>(dram_req_map[LOAD_INSN]);
 
-    std::cout << "Func Sim Registered request" << std::endl;
+    // Register Request to be Matched
+    auto& matcher = func_req_map[LOAD_INSN];
+    matcher.Register(std::move(req));
 
-    // Wait for first load instruction
+    // Wait to load all instructions
     {
-      // while (front->acquired_len < sizeof(VTAGenericInsn)) {
-      while (front->acquired_len < front->len) {
-        // std::cerr << "Waiting for Load insn" << front->acquired_len << std::endl;
-        std::unique_lock lk(m_proc);
+      std::unique_lock lk(m_proc);
+      while (!matcher.isCompleted()) { 
         sim_blocked = true;
         cv.notify_one();
         cv.wait(lk, [] { return !sim_blocked; });
+        matcher.Match(); 
       }
     }
+    auto front = matcher.Consume(); 
 
     uint32_t insn_holder = 0;
-    std::cerr << "Starting Run insn" << std::endl;
-    // TODO verify the pointer arithmetic for buffer
+    std::cerr << "Start Run insn" << std::endl;
+
     while (1) {
       VTAGenericInsn* insn = reinterpret_cast<VTAGenericInsn*>(front->buffer)+insn_holder;
       vta::sim::Device::Run_Insn(insn, reinterpret_cast<void*>(this));
-      std::cout << "Finished Instruction: "  << insn_holder << std::endl;
-      // exit(0);
+      //std::cout << "Finished Instruction: "  << insn_holder << std::endl;
+
       insn_holder++;
 
       // Exit loop on last instruction
       if (insn_holder == insn_count && front->len == front->acquired_len) {
-        // TODO must free buffer
-        dequeueReq<DramReq>(dram_req_map[LOAD_INSN]); 
+        std::cout << "Last instruction reached!" << std::endl;
         break;
       }
     }
-    std::cout << "Last instruction reached!" << std::endl;
     // Notify wrapper of end
     {
       std::unique_lock lk(m_proc);
-      // TODO set back, must also keep unblocking
       std::cerr << "Set finish to True!" << std::endl;
       finished = true; 
       sim_blocked = false;
       cv.notify_one();
-      lk.unlock();
     }
 
     return 0;
   }
 
  private:
-  void MakeInsn(VTAGenericInsn& insn) {
-    // Keep tabs on dependence queues
-    // Converter
-    // std::cerr << "creating new token for lpn " <<std::endl;
-    union VTAInsn c;
-    // Iterate over all instructions
-    NEW_TOKEN(token_class_ostxyuullupppp, new_token);
-    new_token->opcode = static_cast<int>(ALL_ENUM::EMPTY);
-    new_token->subopcode = static_cast<int>(ALL_ENUM::EMPTY);
-    new_token->tstype = static_cast<int>(ALL_ENUM::EMPTY);
-    new_token->pop_prev = 0;
-    new_token->pop_next = 0;
-    new_token->push_prev = 0;
-    new_token->push_next = 0;
-    new_token->xsize = 0;
-    new_token->ysize = 0;
-    pnumInsn.pushToken(new_token);
-
-    NEW_TOKEN(token_class_total_insn, launch_token);
-    launch_token->total_insn = 1;
-    plaunch.pushToken(launch_token);
-
-    c.generic = insn;
-    if (c.mem.opcode == VTA_OPCODE_LOAD || c.mem.opcode == VTA_OPCODE_STORE) {
-      if (c.mem.x_size == 0) {
-        if (c.mem.opcode == VTA_OPCODE_STORE) {
-          // printf("NOP-STORE-STAGE\n");
-          new_token->opcode = static_cast<int>(ALL_ENUM::STORE);
-          new_token->subopcode = static_cast<int>(ALL_ENUM::SYNC);
-        } else if (c.mem.memory_type == VTA_MEM_ID_ACC ||
-                   c.mem.memory_type == VTA_MEM_ID_ACC_8BIT ||
-                   c.mem.memory_type == VTA_MEM_ID_UOP) {
-          // printf("NOP-COMPUTE-STAGE\n");
-          new_token->opcode = static_cast<int>(ALL_ENUM::COMPUTE);
-          new_token->subopcode = static_cast<int>(ALL_ENUM::SYNC);
-        } else {
-          new_token->opcode = static_cast<int>(ALL_ENUM::LOAD);
-          new_token->subopcode = static_cast<int>(ALL_ENUM::SYNC);
-        }
-        new_token->pop_prev = static_cast<int>(c.mem.pop_prev_dep);
-        new_token->pop_next = static_cast<int>(c.mem.pop_next_dep);
-        new_token->push_prev = static_cast<int>(c.mem.push_prev_dep);
-        new_token->push_next = static_cast<int>(c.mem.push_next_dep);
-        return;
-      }
-      // Print instruction field information
-      if (c.mem.opcode == VTA_OPCODE_LOAD) {
-        // printf("LOAD ");
-        if (c.mem.memory_type == VTA_MEM_ID_UOP) {
-          new_token->opcode = static_cast<int>(ALL_ENUM::COMPUTE);
-          new_token->subopcode = static_cast<int>(ALL_ENUM::LOADUOP);
-        }
-        if (c.mem.memory_type == VTA_MEM_ID_WGT) {
-          new_token->opcode = static_cast<int>(ALL_ENUM::LOAD);
-          new_token->subopcode = static_cast<int>(ALL_ENUM::LOAD);
-          new_token->tstype = static_cast<int>(ALL_ENUM::WGT);
-        }
-        if (c.mem.memory_type == VTA_MEM_ID_INP) {
-          new_token->opcode = static_cast<int>(ALL_ENUM::LOAD);
-          new_token->subopcode = static_cast<int>(ALL_ENUM::LOAD);
-          new_token->tstype = static_cast<int>(ALL_ENUM::INP);
-        }
-        if (c.mem.memory_type == VTA_MEM_ID_ACC) {
-          new_token->opcode = static_cast<int>(ALL_ENUM::COMPUTE);
-          new_token->subopcode = static_cast<int>(ALL_ENUM::LOADACC);
-        }
-      }
-      if (c.mem.opcode == VTA_OPCODE_STORE) {
-        new_token->opcode = static_cast<int>(ALL_ENUM::STORE);
-        new_token->subopcode = static_cast<int>(ALL_ENUM::STORE);
-      }
-
-      new_token->pop_prev = static_cast<int>(c.mem.pop_prev_dep);
-      new_token->pop_next = static_cast<int>(c.mem.pop_next_dep);
-      new_token->push_prev = static_cast<int>(c.mem.push_prev_dep);
-      new_token->push_next = static_cast<int>(c.mem.push_next_dep);
-      new_token->xsize = static_cast<int>(c.mem.x_size);
-      new_token->ysize = static_cast<int>(c.mem.y_size);
-
-      //new_token->dram_ptr = c.mem.dram_base * kElemBytes; TODO
-
-      // if (new_token->subopcode == static_cast<int>(ALL_ENUM::LOADUOP)) {
-      //   std::cerr << new_token->subopcode << "loadup " << "pop_prev " <<
-      //   new_token->pop_prev << " pop_next " << new_token->pop_next << "
-      //   push_prev " << new_token->push_prev << " push_next " <<
-      //   new_token->push_next << " xsize " << new_token->xsize << " ysize " <<
-      //   new_token->ysize << " uop_begin " << new_token->uop_begin << "
-      //   uop_end " << new_token->uop_end << " lp_1 " << new_token->lp_1 << "
-      //   lp_0 " << new_token->lp_0 << std::endl;
-      // }
-
-      // c.mem.x_pad_0 = 0;
-      // c.mem.x_pad_1 = 0;
-      // c.mem.y_pad_0 = 0;
-      // c.mem.y_pad_1 = 0;
-
-    } else if (c.mem.opcode == VTA_OPCODE_GEMM) {
-      // Print instruction field information
-      new_token->opcode = static_cast<int>(ALL_ENUM::COMPUTE);
-      new_token->subopcode = static_cast<int>(ALL_ENUM::GEMM);
-
-      new_token->pop_prev = static_cast<int>(c.mem.pop_prev_dep);
-      new_token->pop_next = static_cast<int>(c.mem.pop_next_dep);
-      new_token->push_prev = static_cast<int>(c.mem.push_prev_dep);
-      new_token->push_next = static_cast<int>(c.mem.push_next_dep);
-      new_token->xsize = static_cast<int>(c.mem.x_size);
-      new_token->ysize = static_cast<int>(c.mem.y_size);
-      new_token->uop_begin = static_cast<int>(c.gemm.uop_bgn);
-      new_token->uop_end = static_cast<int>(c.gemm.uop_end);
-      new_token->lp_1 = static_cast<int>(c.gemm.iter_out);
-      new_token->lp_0 = static_cast<int>(c.gemm.iter_in);
-      // std::cerr <<"gemm " << "pop_prev " << new_token->pop_prev << " pop_next
-      // " << new_token->pop_next << " push_prev " << new_token->push_prev << "
-      // push_next " << new_token->push_next << " xsize " << new_token->xsize <<
-      // " ysize " << new_token->ysize << " uop_begin " << new_token->uop_begin
-      // << " uop_end " << new_token->uop_end << " lp_1 " << new_token->lp_1 <<
-      // " lp_0 " << new_token->lp_0 << std::endl;
-
-    } else if (c.mem.opcode == VTA_OPCODE_ALU) {
-      new_token->opcode = static_cast<int>(ALL_ENUM::COMPUTE);
-      new_token->subopcode = static_cast<int>(ALL_ENUM::ALU);
-
-      new_token->pop_prev = static_cast<int>(c.mem.pop_prev_dep);
-      new_token->pop_next = static_cast<int>(c.mem.pop_next_dep);
-      new_token->push_prev = static_cast<int>(c.mem.push_prev_dep);
-      new_token->push_next = static_cast<int>(c.mem.push_next_dep);
-      new_token->xsize = static_cast<int>(c.mem.x_size);
-      new_token->ysize = static_cast<int>(c.mem.y_size);
-      new_token->uop_begin = static_cast<int>(c.alu.uop_bgn);
-      new_token->uop_end = static_cast<int>(c.alu.uop_end);
-      new_token->lp_1 = static_cast<int>(c.alu.iter_out);
-      new_token->lp_0 = static_cast<int>(c.alu.iter_in);
-      new_token->use_alu_imm = static_cast<int>(c.alu.use_imm);
-
-    } else if (c.mem.opcode == VTA_OPCODE_FINISH) {
-      new_token->opcode = static_cast<int>(ALL_ENUM::LOAD);
-      new_token->subopcode = static_cast<int>(ALL_ENUM::SYNC);
-      new_token->tstype = static_cast<int>(ALL_ENUM::FINISH);
-    }
-  }
-
   static int Run_Insn(const VTAGenericInsn* insn, void* dev) {
     Device* device = reinterpret_cast<Device*>(dev);
     const VTAMemInsn* mem = reinterpret_cast<const VTAMemInsn*>(insn);
@@ -661,26 +494,22 @@ class Device {
     int ans = 0;
     switch (mem->opcode) {
       case VTA_OPCODE_LOAD:
-        std::cout << "opcode  "
-                    << "VTA OPCODE LOAD" << std::endl;
+        //std::cout << "opcode  " << "VTA OPCODE LOAD" << std::endl;
         ans = device->RunLoad(mem);
         return ans;
         break;
       case VTA_OPCODE_STORE:
-        std::cout << "opcode  "
-                    << "VTA OPCODE STORE" << std::endl;
+        //std::cout << "opcode  " << "VTA OPCODE STORE" << std::endl;
         ans = device->RunStore(mem);
         return ans;
         break;
       case VTA_OPCODE_GEMM:
-        std::cout << "opcode  "
-                    << "VTA OPCODE GEMM" << std::endl;
+        //std::cout << "opcode  " << "VTA OPCODE GEMM" << std::endl;
         ans = device->RunGEMM(gem);
         return ans;
         break;
       case VTA_OPCODE_ALU:
-        std::cout << "opcode  "
-                    << "VTA OPCODE ALU" << std::endl;
+        //std::cout << "opcode  " << "VTA OPCODE ALU" << std::endl;
         ans = device->RunALU(alu);
         return ans;
         break;
@@ -700,24 +529,24 @@ class Device {
     if (op->x_size == 0)
       return 0;
     if (op->memory_type == VTA_MEM_ID_INP) {
-      std::cout << "memory_type " << "VTA_MEM_ID_INP" << std::endl;
+      //std::cout << "memory_type " << "VTA_MEM_ID_INP" << std::endl;
       return inp_.Load(op, &(prof_->inp_load_nbytes), prof_->SkipExec(),
                        LOAD_INP_ID);
     } else if (op->memory_type == VTA_MEM_ID_WGT) {
-      std::cout << "memory_type " << "VTA_MEM_ID_WGT" << std::endl;
+      //std::cout << "memory_type " << "VTA_MEM_ID_WGT" << std::endl;
       return wgt_.Load(op, &(prof_->wgt_load_nbytes), prof_->SkipExec(),
                        LOAD_WGT_ID);
     } else if (op->memory_type == VTA_MEM_ID_ACC) {
-      std::cout << "memory_type " << "VTA_MEM_ID_ACC" << std::endl;
+      //std::cout << "memory_type " << "VTA_MEM_ID_ACC" << std::endl;
       return acc_.Load(op, &(prof_->acc_load_nbytes), prof_->SkipExec(),
                        LOAD_ACC_ID);
     } else if (op->memory_type == VTA_MEM_ID_UOP) {
-      std::cout << "memory_type " << "VTA_MEM_ID_UOP" << std::endl;
+      //std::cout << "memory_type " << "VTA_MEM_ID_UOP" << std::endl;
       //  always load in uop, since uop is stateful
       //  subsequent non-debug mode exec can depend on it.
       return uop_.Load(op, &(prof_->uop_load_nbytes), false, LOAD_UOP_ID);
     } else if (op->memory_type == VTA_MEM_ID_ACC_8BIT) {
-      std::cout << "memory_type " << "VTA_MEM_ID_ACC_8BIT" << std::endl;
+      //std::cout << "memory_type " << "VTA_MEM_ID_ACC_8BIT" << std::endl;
       return acc_.Load_int8(op, &(prof_->acc_load_nbytes), prof_->SkipExec(),
                             LOAD_ACC_ID);
     } else {

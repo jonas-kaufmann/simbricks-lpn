@@ -13,36 +13,33 @@
 #include <deque>
 #include <vector>
 
-typedef struct LpnReq {
+// TODO Rename MATCH Interface
+
+typedef struct MemReq {
   uint32_t id;
-  bool inflight; 
-  bool rw;
   uint64_t addr;
   uint32_t len;
   uint32_t acquired_len;
-  // need a better name lpnreq can be used for writes as well but 
-  // in the case of writes, consumed from consuming from dram req
-  // in the case of reads, consumed means consumed by dram req
-  uint32_t consumed;
+  bool rw;
   void* buffer;
+
+  ~MemReq() {
+    free(buffer);
+  }
+} MemReq;
+
+// TODO find better name like PerfWrite/PerfRead, FuncWrite/FuncRead
+typedef struct LpnReq : MemReq {
+  bool inflight; 
 } LpnReq;
 
 #define READ_REQ 0
 #define WRITE_REQ 1
 
-typedef struct DramReq {
-  uint32_t id;
-  uint64_t addr;
-  uint32_t len;
-  uint32_t acquired_len;
-  bool inflight;  // TODO left for writes, to remove
-  bool rw;
-  void* buffer;
+typedef struct DramReq : MemReq {
 } DramReq;
 
 extern std::map<int, std::deque<std::unique_ptr<LpnReq>>> lpn_req_map;
-extern std::map<int, std::deque<std::unique_ptr<LpnReq>>> lpn_served_req_map;
-extern std::map<int, std::deque<std::unique_ptr<DramReq>>> dram_req_map;
 
 void setupReqQueues(const std::vector<int>& ids);
 
@@ -64,85 +61,80 @@ std::unique_ptr<T> dequeueReq(std::deque<std::unique_ptr<T>>& reqQueue) {
   return req;
 }
 
-class FixedDoubleBuffer {
+class Matcher {
  private:
-  uint8_t* buffers_[2];  // Array of two buffers
-  int currentBuffer_;    // Index of the buffer currently in use for writing
-  size_t bufferSize_;    // Size of each buffer
-  size_t readPtr_;       // Read pointer in the current buffer
-  size_t dataLen_;       // Amount of valid data in the current buffer
+  std::unique_ptr<MemReq> currReq;  
+  std::vector<std::unique_ptr<MemReq>> reqs;
+  bool valid = false;
 
  public:
-  FixedDoubleBuffer(size_t size)
-      : currentBuffer_(0), bufferSize_(size), readPtr_(0), dataLen_(0) {
-    buffers_[0] = new uint8_t[size];
-    buffers_[1] = new uint8_t[size];
-    memset(buffers_[0], 0, size);
-    memset(buffers_[1], 0, size);
+  // Registers a request to be matched
+  void Register(std::unique_ptr<MemReq> req) {
+    currReq = std::move(req);
+    valid = true;
+    Match();
   }
 
-  ~FixedDoubleBuffer() {
-    delete[] buffers_[0];
-    delete[] buffers_[1];
+  // Enqueues a buffered request
+  void Produce(std::unique_ptr<MemReq> req) {
+    reqs.emplace_back(std::move(req));
   }
 
-  void supply(uint8_t* data, size_t len) {
-    size_t spaceAvailable = bufferSize_ - dataLen_ - readPtr_;
-    if (len <= spaceAvailable) {
-      // If new data fits in the current buffer, copy it there
-      memcpy(buffers_[currentBuffer_] + readPtr_ + dataLen_, data, len);
-      dataLen_ += len;
-    } else {
-      // Not enough space, so switch buffers
-      int newBuffer = 1 - currentBuffer_;
-      memcpy(buffers_[newBuffer], buffers_[currentBuffer_] + readPtr_,
-             dataLen_);  // Copy existing valid data to new buffer
-      assert(dataLen_ + len <= bufferSize_);
-      memcpy(buffers_[newBuffer] + dataLen_, data, len);  // Append new data
-      currentBuffer_ = newBuffer;
-      readPtr_ = 0;     // Reset read pointer
-      dataLen_ += len;  // Update valid data length
+  // Matches buffered memory requests in current one
+  void Match() {
+    auto start = currReq->addr;
+    auto end = start + currReq->len;
+
+    auto it = reqs.begin();
+    while (it != reqs.end()) {
+      auto req = it->get();
+
+      // Check bounds
+      if (req->addr + req->len > start && req->addr < end) {
+        // Copy memory
+        auto from = std::max(start, req->addr);
+        auto to = std::min(end, req->addr + req->len);
+        auto offset1 = from - start;
+        auto offset2 = from - req->addr;
+        memcpy(currReq->buffer + offset1, req->buffer + offset2, to - from);
+        currReq->acquired_len += to - from;
+
+        if (to - from < req->len) {
+          assert(0);  // If overlapping requests
+          // Create new request with the correct info
+          // Add it to vector
+        }
+        it = reqs.erase(it);
+        continue;
+      }
+      ++it;
     }
   }
 
-  uint8_t* getHead() const {
-    return buffers_[currentBuffer_] + readPtr_;
+  bool isCompleted() {
+    return (currReq->acquired_len == currReq->len);
   }
 
-  void pop(size_t len) {
-    // Adjust read pointer and data length without moving data
-    size_t popLength = std::min(len, dataLen_);
-    // Clear popped data (optional)
-    // memset(buffers_[currentBuffer_] + readPtr_, 0, popLength);
-    readPtr_ += popLength;
-    dataLen_ -= popLength;
-
-    // If all data is consumed, reset readPtr for potential reuse of this buffer
-    // space
-    if (dataLen_ == 0) {
-      readPtr_ = 0;
-    }
+  bool isValid() {
+    return valid;
   }
 
-  size_t getLength() const {
-    return dataLen_;
-  }
-
-  void setLength(size_t len) {
-    // Check if there is enough space in the buffer
-    assert(readPtr_ + dataLen_ <= bufferSize_);
-    dataLen_ = len;
+  // Consumes the request, need to register again afterwards
+  std::unique_ptr<MemReq> Consume() {
+    std::unique_ptr<MemReq> req = std::move(currReq);
+    valid = false;
+    return req;
   }
 };
-
-extern std::map<int, std::unique_ptr<FixedDoubleBuffer>> read_buffer_map;
-extern std::map<int, std::unique_ptr<FixedDoubleBuffer>> write_buffer_map;
 
 extern std::condition_variable cv;
 extern std::mutex m_proc;
 extern bool sim_blocked;
 extern bool finished;
 
-void setupBufferMap(const std::vector<int>& ids);
+extern int num_instr;
+
+extern std::map<int, Matcher> func_req_map;
+extern std::map<int, Matcher> perf_req_map;
 
 #endif

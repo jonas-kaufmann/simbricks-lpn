@@ -6,7 +6,6 @@
 
 #define T_SIZE 13
 Transition* t_list[T_SIZE] = { &tstart, &t13, &t9, &t12, &t14, &t15, &t16, &tload_launch, &tload_done, &tstore_launch, &tstore_done, &tcompute_launch, &tcompute_done };
-// Transition* t_list[T_SIZE] = { &tstart};
 
 void create_empty_queue(QT_type(EmptyToken*)* tokens, int num ){
   for(int i=0;i<num;i++){
@@ -36,7 +35,7 @@ void lpn_init(){
 void lpn_start(uint64_t addr, uint32_t insn_count, size_t insn_size) {
   for (int i = 0; i < insn_count; i++) {
     NEW_TOKEN(token_start, new_token);
-    new_token->addr = addr+i*insn_size;
+    new_token->addr = addr + i * insn_size;
     new_token->insn_size = insn_size;
     pstart.pushToken(new_token);
   }

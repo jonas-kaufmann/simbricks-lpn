@@ -71,9 +71,9 @@ BaseToken* MakeLaunchToken() {
   return launch_token;
 }
 
-BaseToken* MakeNumInsnToken(void* buffer, uint64_t loaded) {
+BaseToken* MakeNumInsnToken(void* buffer) {
 
-  VTAGenericInsn* insn = reinterpret_cast<VTAGenericInsn*>(buffer) + loaded;  // TODO verify correctness
+  VTAGenericInsn* insn = reinterpret_cast<VTAGenericInsn*>(buffer);
   union VTAInsn c;
 
   // Iterate over all instructions
@@ -94,7 +94,6 @@ BaseToken* MakeNumInsnToken(void* buffer, uint64_t loaded) {
   // c.generic = *(reinterpret_cast<VTAGenericInsn*>(&(new_token->insn)));
   // don't even care if its mem insn
   if (c.mem.opcode == VTA_OPCODE_LOAD || c.mem.opcode == VTA_OPCODE_STORE) {
-    std::cerr << "Insn LOAD/STORE\n";
     if (c.mem.x_size == 0) {
       if (c.mem.opcode == VTA_OPCODE_STORE) {
         new_token->opcode = static_cast<int>(ALL_ENUM::STORE);
@@ -150,7 +149,6 @@ BaseToken* MakeNumInsnToken(void* buffer, uint64_t loaded) {
     new_token->ysize = static_cast<int>(c.mem.y_size);
 
   } else if (c.mem.opcode == VTA_OPCODE_GEMM) {
-    std::cerr << "Insn GEMM\n";
     // Print instruction field information
     new_token->opcode = static_cast<int>(ALL_ENUM::COMPUTE);
     new_token->subopcode = static_cast<int>(ALL_ENUM::GEMM);
@@ -167,7 +165,6 @@ BaseToken* MakeNumInsnToken(void* buffer, uint64_t loaded) {
     new_token->lp_0 = static_cast<int>(c.gemm.iter_in);
 
   } else if (c.mem.opcode == VTA_OPCODE_ALU) {
-    std::cerr << "Insn ALU\n";
     new_token->opcode = static_cast<int>(ALL_ENUM::COMPUTE);
     new_token->subopcode = static_cast<int>(ALL_ENUM::ALU);
 

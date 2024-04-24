@@ -5,6 +5,7 @@
 #include <sys/types.h>
 #include <functional>
 #include <iostream>
+#include <memory>
 #include "sims/lpn/lpn_common/place_transition.hh"
 #include "sims/lpn/vta/lpn_def/places.hh"
 #include "sims/lpn/vta/include/lpn_req_map.hh"
@@ -16,53 +17,30 @@ namespace lpnvta {
     uint64_t CYCLEPERIOD = 1'000'000 / 150;
 }
 
-#define InsertMemOpAddrLen(tag, rw_req, dram_addr, req_len) \
- auto& front = frontReq(lpn_req_map[tag]); \
-    if(lpn_req_map[tag].empty()){ \
-        auto new_req = std::make_unique<LpnReq>(); \
-        new_req->id = tag;  \
-        new_req->rw = rw_req; \
-        new_req->len = req_len; \
-        new_req->addr = dram_addr; \
-        new_req->buffer = calloc(req_len, 1); \
-        enqueueReq(lpn_req_map[tag], std::move(new_req)); \
-        std::cerr << "insert mem op: " << tag <<" addr:"<< dram_addr <<" len:"<< req_len<< std::endl; \
-        return lpn::LARGE;  \
-    } else { \
-        if (front->acquired_len == front->len ) { \
-            return 0; \
-        } \
-    } \
-    return lpn::LARGE;  \
-
-#define InsertMemOp(tag, rw_req, insn_ptr) \
-   auto& front = frontReq(lpn_req_map[tag]); \
-    if(lpn_req_map[tag].empty()){ \
-        uint32_t req_len = 0; \
-        uint64_t dram_addr = GetMemOpAddr(tag, (uint64_t)insn_ptr, &req_len); \
-        if (req_len == 0) { \
-            return 0; \
-        } \
-        auto new_req = std::make_unique<LpnReq>(); \
-        new_req->id = tag;  \
-        new_req->rw = rw_req; \
-        new_req->len = req_len; \
-        new_req->addr = dram_addr; \
-        new_req->buffer = calloc(req_len, 1); \
-        enqueueReq(lpn_req_map[tag], std::move(new_req)); \
-        std::cerr << "insert mem op: " << tag <<" addr:"<< dram_addr <<" len:"<< req_len<< std::endl; \
-        return lpn::LARGE;  \
-    } else { \
-        if (front->acquired_len == front->len ) { \
-            std::cerr << "deque mem op finish: " << tag << std::endl; \
-            std::cerr << "log again : front->acquired_len: " << front->acquired_len \
-                << " need:" << front->len << std::endl; \
-            enqueueReq(lpn_served_req_map[tag], dequeueReq(lpn_req_map[tag])); \
-            return 0; \
-        } \
-    } \
-    return lpn::LARGE;  \
-
+#define InsertMemOp(tag, rw_req, insn_ptr)                                    \
+  auto& front = frontReq(lpn_req_map[tag]);                                   \
+  if (lpn_req_map[tag].empty()) {                                             \
+    uint32_t req_len = 0;                                                     \
+    uint64_t dram_addr = GetMemOpAddr(tag, (uint64_t)insn_ptr, &req_len);     \
+    if (req_len == 0) {                                                       \
+      return 0;                                                               \
+    }                                                                         \
+    auto new_req = std::make_unique<LpnReq>();                                \
+    new_req->id = tag;                                                        \
+    new_req->rw = rw_req;                                                     \
+    new_req->len = req_len;                                                   \
+    new_req->addr = dram_addr;                                                \
+    new_req->buffer = calloc(req_len, 1);                                     \
+    enqueueReq(lpn_req_map[tag], std::move(new_req));                         \
+    return lpn::LARGE;                                                        \
+  } else {                                                                    \
+    if (front->acquired_len == front->len) {                                  \
+      func_req_map[tag].Produce(dequeueReq(lpn_req_map[tag]));                \
+      num_instr--;                                                            \
+      return 0;                                                               \
+    }                                                                         \
+  }                                                                           \
+  return lpn::LARGE;
 
 #define NEW_REQ(id_, rw_, len_) \
     auto new_req = std::make_unique<LpnReq>(); \
@@ -245,8 +223,47 @@ std::function<uint64_t()> delay_t9() {
 template<typename T>
 std::function<uint64_t()> delay_store(Place<T>& dependent_place) {
     auto delay = [&]() -> uint64_t {
-        return 0;
-        InsertMemOp(STORE_ID, WRITE_REQ, &(dependent_place.tokens[0]->insn));
+        uint64_t insn_ptr = (uint64_t)&(dependent_place.tokens[0]->insn);
+        uint32_t req_len = 0;
+        uint64_t dram_addr = GetMemOpAddr(STORE_ID, (uint64_t)insn_ptr, &req_len);
+
+        auto& matcher = perf_req_map[STORE_ID];
+        auto& front = frontReq(lpn_req_map[STORE_ID]);
+
+        // If no ongoing dma request
+        if (lpn_req_map[STORE_ID].empty()) {
+          if (!matcher.isValid()) {
+            // Register a new Store request
+            auto req = std::make_unique<LpnReq>();
+            req->id = STORE_ID;
+            req->rw = WRITE_REQ;
+            req->len = req_len;
+            req->addr = dram_addr;
+            req->buffer = calloc(req_len, 1);
+            matcher.Register(std::move(req));
+          }
+
+          // Try to consume and enqueue dma request
+          if (matcher.isCompleted()) {
+            auto req = matcher.Consume();
+            auto r = std::make_unique<LpnReq>();  // not clean but type problem
+            r->id = STORE_ID;
+            r->rw = WRITE_REQ;
+            r->len = req->len;
+            r->addr = req->addr;
+            r->buffer = calloc(req->len, 1);
+            memcpy(r->buffer, req->buffer, req->len);
+            enqueueReq(lpn_req_map[STORE_ID], std::move(r));
+          }
+          return lpn::LARGE;
+        } else {
+          if (front->acquired_len == front->len) {
+            dequeueReq(lpn_req_map[STORE_ID]);
+            num_instr--;
+            return 0;
+          }
+        }
+        return lpn::LARGE;
     };
     return delay;
 };
@@ -276,7 +293,7 @@ std::function<void(BasePlace*)> output_launch_token(Place<T>& dependent_place) {
 template<typename T>
 std::function<void(BasePlace*)> output_pnum_insn(Place<T>& dependent_place) {
     auto output_token = [&](BasePlace* output_place) -> void {
-        output_place->pushToken(MakeNumInsnToken(&(dependent_place.tokens[0]->insn), 0));
+        output_place->pushToken(MakeNumInsnToken(&(dependent_place.tokens[0]->insn)));
     };
     return output_token;
 };
@@ -288,8 +305,7 @@ std::function<uint64_t()> delay_start(Place<T>& dependent_place) {
         auto req_len = dependent_place.tokens[0]->insn_size; 
         auto tag = LOAD_INSN;
         auto& front = frontReq(lpn_req_map[LOAD_INSN]);
-        std::cerr << "call delay start: " << dram_addr << " " << req_len << "queue empty?"<< lpn_req_map[LOAD_INSN].empty() << " front:" << front.get() << std::endl;
-        if(lpn_req_map[LOAD_INSN].empty()){
+        if(lpn_req_map[tag].empty()){
             auto new_req = std::make_unique<LpnReq>();
             new_req->id = tag;
             new_req->rw = READ_REQ;
@@ -297,15 +313,12 @@ std::function<uint64_t()> delay_start(Place<T>& dependent_place) {
             new_req->addr = dram_addr;
             new_req->buffer = calloc(req_len, 1);
             enqueueReq(lpn_req_map[tag], std::move(new_req));
-            std::cerr << "insert mem op: " << tag <<" addr:"<< dram_addr <<" len:"<< req_len<< std::endl;
             return lpn::LARGE;
         } else {
             if (front->acquired_len == front->len ) {
                 dependent_place.tokens[0]->insn.data1_ = *(uint64_t*)front->buffer; 
                 dependent_place.tokens[0]->insn.data2_ = *((uint64_t*)front->buffer+1);
-                std::cerr << "deque mem op finish: " << tag <<" addr:" <<front->addr << std::endl;
-                auto deq = dequeueReq(lpn_req_map[LOAD_INSN]);
-                enqueueReq(lpn_served_req_map[LOAD_INSN], std::move(deq));
+                func_req_map[tag].Produce(dequeueReq(lpn_req_map[tag]));
                 return 10;
             }
         }
@@ -322,37 +335,21 @@ std::function<uint64_t()> delay_load(Place<T>& dependent_place) {
         auto tstype = dependent_place.tokens[0]->tstype;
         auto xsize = dependent_place.tokens[0]->xsize;
         auto ysize = dependent_place.tokens[0]->ysize;
-        //auto dram_ptr = dependent_place.tokens[0]->dram_ptr;
-        // std::cout << "DELAY LOAD" << std::endl;
 
         if (subopcode == (int)ALL_ENUM::SYNC) {
+          num_instr--;
           return lpnvta::CYCLEPERIOD * 2;
         }
-        // Problem: LPN does not model the loading of the instructions
 
-        // TODO cannot set finished variable when func sim has finished, must also wait for LPN
-        // TODO clear up finished situation
-
-        // When is delay_load called ?? Is it at each NextCommitTime?
-
-        // TODO here, should decode address and add to lpn_req_buffer to issue request
-        // TODO should not dequeue from LPN if not consumed yet
-        // TODO update load8
-        // TODO there should be an offset in the token
-        // TODO hack of using loaded to maintain state
-
-        // Question: Aren't the loads supposed to be concurrent? Or are they FIFO per tag, but concurrent accross tags?
-        // Why do we wait to receive a DMA response before issuing the next one??
-        // Question: Should issue request for WGT load aswell??
-        int tag=0, rw_req=0;
+        int tag = 0, rw_req = 0;
         if (tstype == (int)ALL_ENUM::INP) {
-            // uint32_t req_len = (((((xsize * ysize) * 1) * 16) * 8)/64*8);
-            tag = LOAD_INP_ID;
-            rw_req = READ_REQ;
+          // uint32_t req_len = (((((xsize * ysize) * 1) * 16) * 8)/64*8);
+          tag = LOAD_INP_ID;
+          rw_req = READ_REQ;
         }
         if (tstype == (int)ALL_ENUM::WGT) {
-            tag = LOAD_WGT_ID;
-            rw_req = READ_REQ;
+          tag = LOAD_WGT_ID;
+          rw_req = READ_REQ;
         }
         InsertMemOp(tag, rw_req, insn_ptr);        
     };
@@ -364,6 +361,7 @@ uint64_t delay_gemm(Place<T>& dependent_place) {
     auto uop_end = dependent_place.tokens[0]->uop_end;
     auto lp_0 = dependent_place.tokens[0]->lp_0;
     auto lp_1 = dependent_place.tokens[0]->lp_1;
+    num_instr--;
     return lpnvta::CYCLEPERIOD*((1 + 5) + (((uop_end - uop_begin) * lp_1) * lp_0));
 };
 template<typename T>
@@ -382,6 +380,7 @@ uint64_t delay_alu(Place<T>& dependent_place) {
     auto lp_0 = dependent_place.tokens[0]->lp_0;
     auto lp_1 = dependent_place.tokens[0]->lp_1;
     auto use_alu_imm = dependent_place.tokens[0]->use_alu_imm;
+    num_instr--;
     return lpnvta::CYCLEPERIOD*((1 + 5) + ((((uop_end - uop_begin) * lp_1) * lp_0) * (2 - use_alu_imm)));
 };
 template<typename T>
@@ -389,7 +388,8 @@ std::function<uint64_t()> delay_compute(Place<T>& dependent_place) {
     auto delay = [&]() -> uint64_t {
         auto subopcode = dependent_place.tokens[0]->subopcode;
         if (subopcode == (int)ALL_ENUM::SYNC) {
-            return lpnvta::CYCLEPERIOD*(1 + 1);
+          num_instr--;
+          return lpnvta::CYCLEPERIOD * (1 + 1);
         }
         if (subopcode == (int)ALL_ENUM::ALU) {
             return delay_alu(dependent_place);
