@@ -157,7 +157,7 @@ int sync(Transition* self, uint64_t time){
    if(time >= self->delay_event){
     //  printf("commit lpn trans: %s at cycles %lu \n", self->id.c_str(), time);
     // reordered the two
-     std::cerr <<  "commit=" << self->id << " at ps=" << time << std::endl;
+     //std::cerr <<  "commit=" << self->id << " at ps=" << time << std::endl;
      self->count ++;
      accept_t(self);
      fire_t(self);

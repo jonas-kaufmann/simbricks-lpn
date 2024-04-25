@@ -28,6 +28,7 @@ experiments = []
 
 for h in ['qk', 'qt', 'gk', 'gt']:
     for vta_var in ['lpn', 'rtl']:
+        print("running")
         e = exp.Experiment('vtatest-' + h + '-'+vta_var)
         e.checkpoint = False
 
