@@ -30,7 +30,7 @@
 #include <iostream>
 
 #define AXI_R_DEBUG 0
-#define AXI_W_DEBUG 1
+#define AXI_W_DEBUG 0
 
 inline uint64_t pow2(uint64_t exponent) {
   return 1 << exponent;

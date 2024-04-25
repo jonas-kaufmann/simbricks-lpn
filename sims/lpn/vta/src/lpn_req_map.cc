@@ -19,3 +19,28 @@ void setupReqQueues(const std::vector<int>& ids) {
   }
 }
 
+Matcher& enqRequest(uint64_t addr, uint32_t len, int tag, int rw) {
+      auto req = std::make_unique<DramReq>();
+      req->addr = (uint64_t)addr;
+      req->id = tag;
+      req->rw = READ_REQ;
+      req->len = len;
+      req->buffer = calloc(1, len);
+
+      // Register Request to be Matched
+      auto& matcher = func_req_map[tag];
+      matcher.Register(std::move(req));
+
+      // Wait for Response
+      {
+        std::unique_lock lk(m_proc);
+        while (!matcher.isCompleted()) {
+          sim_blocked = true;
+          cv.notify_one();
+          cv.wait(lk, [] { return !sim_blocked; });
+          matcher.Match();
+        }
+      }
+      return matcher;
+    }
+

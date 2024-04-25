@@ -127,6 +127,8 @@ class Matcher {
   }
 };
 
+Matcher& enqRequest(uint64_t addr, uint32_t len, int tag, int rw);
+
 extern std::condition_variable cv;
 extern std::mutex m_proc;
 extern bool sim_blocked;

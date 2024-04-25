@@ -29,40 +29,46 @@ struct MemOpAddrUnit{
 
 MemOpAddrUnit memOpHelper;
 
-uint64_t GetMemOpAddr(int tag, uint64_t insn_ptr, uint32_t* len) {
-
+int GetMemOpAddr(int tag, uint64_t insn_ptr, std::vector<uint64_t>& addrList, std::vector<uint32_t>& sizeList) {
+  
   VTAGenericInsn* insn = reinterpret_cast<VTAGenericInsn*>(insn_ptr);
   union VTAInsn c;
   c.generic = *insn;
   uint64_t dram_base = c.mem.dram_base;
   int kElemBytes = 0;
-  uint64_t addr = 0;
+  uint64_t base_addr = 0;
   if (tag == LOAD_INP_ID) {
-    addr = reinterpret_cast<uint64_t>(dram_base * memOpHelper.inp_.kElemBytes);
+    base_addr = reinterpret_cast<uint64_t>(dram_base * memOpHelper.inp_.kElemBytes);
     kElemBytes = memOpHelper.inp_.kElemBytes;
   } else if (tag == LOAD_WGT_ID) {
-    addr = reinterpret_cast<uint64_t>(dram_base * memOpHelper.wgt_.kElemBytes);
+    base_addr = reinterpret_cast<uint64_t>(dram_base * memOpHelper.wgt_.kElemBytes);
     kElemBytes = memOpHelper.wgt_.kElemBytes;
   } else if (tag == LOAD_ACC_ID) {
-    addr = reinterpret_cast<uint64_t>(dram_base * memOpHelper.acc_.kElemBytes);
+    base_addr = reinterpret_cast<uint64_t>(dram_base * memOpHelper.acc_.kElemBytes);
     kElemBytes = memOpHelper.acc_.kElemBytes;
   } else if (tag == LOAD_UOP_ID) {
     kElemBytes = memOpHelper.uop_.kElemBytes;
-    addr = reinterpret_cast<uint64_t>(dram_base * memOpHelper.uop_.kElemBytes);
+    base_addr = reinterpret_cast<uint64_t>(dram_base * memOpHelper.uop_.kElemBytes);
   } else if (tag == STORE_ID){
-    addr = reinterpret_cast<uint64_t>(dram_base * memOpHelper.store_.targetWidth);
+    base_addr = reinterpret_cast<uint64_t>(dram_base * memOpHelper.store_.targetWidth);
   }
+
   if (tag == LOAD_INP_ID || tag == LOAD_WGT_ID || tag == LOAD_ACC_ID || tag == LOAD_UOP_ID) {
     int i = 0;
     for (uint32_t y = 0; y < c.mem.y_size; ++y) {
+      uint64_t addr = base_addr + i;
+      uint32_t size = kElemBytes * c.mem.x_size;
+      addrList.push_back(addr);
+      sizeList.push_back(size);
       i += kElemBytes * c.mem.x_stride;
     }
-    *len = i; 
-
   } else if (tag == STORE_ID) {
-    *len = ((c.mem.y_size - 1) * c.mem.x_stride + c.mem.x_size - 1) * memOpHelper.store_._kLane + memOpHelper.store_._kLane;
+    uint32_t len = ((c.mem.y_size - 1) * c.mem.x_stride + c.mem.x_size - 1) * memOpHelper.store_._kLane + memOpHelper.store_._kLane;
+    addrList.push_back(base_addr);
+    sizeList.push_back(len);
   }
-  return addr;
+  // std::cerr << "GetMemOpAddr: " << tag << " " << addrList.size() << " " << sizeList.size() << std::endl;
+  return 0;
 }
 
 BaseToken* MakeLaunchToken() {

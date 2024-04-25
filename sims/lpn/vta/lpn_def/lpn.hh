@@ -16,31 +16,45 @@
 namespace lpnvta {
     uint64_t CYCLEPERIOD = 1'000'000 / 150;
 }
-
 #define InsertMemOp(tag, rw_req, insn_ptr)                                    \
-  auto& front = frontReq(lpn_req_map[tag]);                                   \
-  if (lpn_req_map[tag].empty()) {                                             \
-    uint32_t req_len = 0;                                                     \
-    uint64_t dram_addr = GetMemOpAddr(tag, (uint64_t)insn_ptr, &req_len);     \
-    if (req_len == 0) {                                                       \
-      return 0;                                                               \
-    }                                                                         \
-    auto new_req = std::make_unique<LpnReq>();                                \
-    new_req->id = tag;                                                        \
-    new_req->rw = rw_req;                                                     \
-    new_req->len = req_len;                                                   \
-    new_req->addr = dram_addr;                                                \
-    new_req->buffer = calloc(req_len, 1);                                     \
-    enqueueReq(lpn_req_map[tag], std::move(new_req));                         \
-    return lpn::LARGE;                                                        \
-  } else {                                                                    \
-    if (front->acquired_len == front->len) {                                  \
-      func_req_map[tag].Produce(dequeueReq(lpn_req_map[tag]));                \
-      num_instr--;                                                            \
-      return 0;                                                               \
-    }                                                                         \
-  }                                                                           \
-  return lpn::LARGE;
+    auto& front = frontReq(lpn_req_map[tag]);                                   \
+    if (lpn_req_map[tag].empty()) {                                             \
+        std::vector<uint64_t> addrList;                                           \
+        std::vector<uint32_t> sizeList;                                           \
+        GetMemOpAddr(tag, (uint64_t)insn_ptr, addrList, sizeList);                 \
+        int num_req = addrList.size();                                             \
+        int empty_mem_op = 1;                                                     \
+        for (int i=0; i < num_req; i++){                                           \
+            auto dram_addr = addrList[i];                                          \
+            auto req_len = sizeList[i];                                            \
+            if (req_len == 0) {                                                    \
+                continue;                                                          \
+            }                                                                      \
+            empty_mem_op = 0;                                                      \
+            auto new_req = std::make_unique<LpnReq>();                             \
+            new_req->id = tag;                                                     \
+            new_req->rw = rw_req;                                                  \
+            new_req->len = req_len;                                                \
+            new_req->addr = dram_addr;                                             \
+            new_req->buffer = calloc(req_len, 1);                                  \
+            enqueueReq(lpn_req_map[tag], std::move(new_req));                      \
+        }                                                                          \
+        if (empty_mem_op==1) return 0;                                             \
+    } else {                                                                     \
+        while(1){                                                                  \
+            auto& front = frontReq(lpn_req_map[tag]);                                    \
+            if(lpn_req_map[tag].empty()){                                          \
+                num_instr--;                                                       \
+                return 0;                                                          \
+            }                                                                      \
+            if (front->acquired_len == front->len) {                               \
+                func_req_map[tag].Produce(dequeueReq(lpn_req_map[tag]));           \
+            } else {                                                               \
+                break;                                                             \
+            }                                                                      \
+        }                                                                          \
+    }                                                                            \
+    return lpn::LARGE;
 
 #define NEW_REQ(id_, rw_, len_) \
     auto new_req = std::make_unique<LpnReq>(); \
@@ -224,8 +238,13 @@ template<typename T>
 std::function<uint64_t()> delay_store(Place<T>& dependent_place) {
     auto delay = [&]() -> uint64_t {
         uint64_t insn_ptr = (uint64_t)&(dependent_place.tokens[0]->insn);
-        uint32_t req_len = 0;
-        uint64_t dram_addr = GetMemOpAddr(STORE_ID, (uint64_t)insn_ptr, &req_len);
+        // uint64_t dram_addr = GetMemOpAddr(STORE_ID, (uint64_t)insn_ptr, &req_len);
+        std::vector<uint64_t> addrList;
+        std::vector<uint32_t> sizeList;
+        GetMemOpAddr(STORE_ID, (uint64_t)insn_ptr, addrList, sizeList);
+        assert(addrList.size() == 1);
+        auto dram_addr = addrList[0];
+        auto req_len = sizeList[0];
 
         auto& matcher = perf_req_map[STORE_ID];
         auto& front = frontReq(lpn_req_map[STORE_ID]);

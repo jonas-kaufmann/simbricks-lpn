@@ -160,38 +160,6 @@ static const int kElemBytes = (kBits * kLane + 7) / 8;
     DType* sram_ptr = data_ + op->sram_base;
     uint8_t* dram_ptr = reinterpret_cast<uint8_t*>(op->dram_base * kElemBytes);
 
-    int i = 0;
-    for (uint32_t y = 0; y < op->y_size; ++y) {
-      i += kElemBytes * op->x_stride;
-    }
-
-    // Enqueue Request
-    auto req = std::make_unique<DramReq>();
-    req->addr = (uint64_t)dram_ptr;
-    req->id = tag;
-    req->rw = READ_REQ;
-    req->len = i;
-    req->buffer = calloc(1, i);
-
-    // Register Request to be Matched
-    auto& matcher = func_req_map[tag];
-    matcher.Register(std::move(req));
-
-    // Wait for Response
-    {
-      std::unique_lock lk(m_proc);
-      while (!matcher.isCompleted()) {
-        sim_blocked = true;
-        cv.notify_one();
-        cv.wait(lk, [] { return !sim_blocked; });
-        matcher.Match();
-      }
-    }
-    auto front = matcher.Consume(); 
-
-    // Adapt to code
-    dram_ptr = reinterpret_cast<uint8_t*>(front->buffer);
-
     uint64_t xtotal = op->x_size + op->x_pad_0 + op->x_pad_1;
     uint32_t ytotal = op->y_size + op->y_pad_0 + op->y_pad_1;
     uint64_t sram_end = op->sram_base + xtotal * ytotal;
@@ -200,9 +168,16 @@ static const int kElemBytes = (kBits * kLane + 7) / 8;
     sram_ptr += xtotal * op->y_pad_0;
 
     for (uint32_t y = 0; y < op->y_size; ++y) {
+      // Enqueue Request
       memset(sram_ptr, 0, kElemBytes * op->x_pad_0);
       sram_ptr += op->x_pad_0;
-      memcpy(sram_ptr, dram_ptr, kElemBytes * op->x_size);
+
+      // insert DRAM req
+      auto& matcher = enqRequest((uint64_t)dram_ptr, kElemBytes * op->x_size, tag, READ_REQ);
+      auto front = matcher.Consume(); 
+      // Adapt to code
+      auto buffer = reinterpret_cast<uint8_t*>(front->buffer);
+      memcpy(sram_ptr, buffer, kElemBytes * op->x_size);
       sram_ptr += op->x_size;
       memset(sram_ptr, 0, kElemBytes * op->x_pad_1);
       sram_ptr += op->x_pad_1;

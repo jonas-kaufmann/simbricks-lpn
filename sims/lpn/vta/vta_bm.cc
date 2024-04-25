@@ -141,6 +141,7 @@ void VTABm::DmaComplete(std::unique_ptr<pciebm::DMAOp> dma_op) {
     req->inflight = false;
     memcpy(req->buffer + req->acquired_len, dma_op->data, dma_op->len);   // TODO verify arithmetic
     req->acquired_len += dma_op->len;
+    // std::cerr << "DMA Complete: " << dma_op->tag << " " << req->acquired_len << " " << req->len << std::endl;
 
   }
   // handle response to DMA write request
