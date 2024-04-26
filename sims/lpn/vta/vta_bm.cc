@@ -162,17 +162,21 @@ void VTABm::DmaComplete(std::unique_ptr<pciebm::DMAOp> dma_op) {
   // Run LPN to process received memory
   uint64_t next_ts = NextCommitTime(t_list, T_SIZE); 
 
+  auto& matcher = func_req_map[dma_op->tag];
 
   // Notify funcsim
   {
     std::unique_lock lk(m_proc);
-    if (sim_blocked) {
-      // Notify to wake up
-      sim_blocked = false;
-      cv.notify_one();
+    // Verify if wake up is needed
+    if (matcher.isCompleted()) {
+      if (sim_blocked) {
+        // Notify to wake up
+        sim_blocked = false;
+        cv.notify_one();
+      }
+      // Wait for func sim to process
+      cv.wait(lk, [] { return sim_blocked || finished; });
     }
-    // Wait for func sim to process
-    cv.wait(lk, [] { return sim_blocked || finished; });
   }
 
   // Schedule next event
