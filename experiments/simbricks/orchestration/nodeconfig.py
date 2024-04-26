@@ -25,6 +25,8 @@ from __future__ import annotations
 import io
 import tarfile
 import typing as tp
+import os
+import requests
 
 
 class AppConfig():
@@ -913,4 +915,112 @@ class VTAMatMul(AppConfig):
             '/usr/bin/python3 -m vta.exec.rpc_server --host=${VTA_RPC_HOST} --port=${VTA_RPC_PORT} &',
             'sleep 5',
             'python vta/tutorials/optimize/matrix_multiply_opt.py'
+        ]
+
+
+class VtaAutoTune(AppConfig):
+
+    def __init__(self, pci_device: str) -> None:
+        super().__init__()
+        self.pci_device = pci_device
+
+    def config_files(self) -> tp.Dict[str, tp.IO]:
+        return {
+            'tune_relay_vta.py':
+                open(
+                    '/home/jonask/Repos/tvm-simbricks/vta/tutorials/autotvm/tune_relay_vta.py',
+                    'rb'
+                ),
+            'measure_methods.py':
+                open(
+                    '/home/jonask/Repos/tvm-simbricks/python/tvm/autotvm/measure/measure_methods.py',
+                    'rb'
+                )
+        }
+
+    def run_cmds(self, node):
+        return [
+            'set -x',
+            (
+                'export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:'
+                '/sbin:/bin'
+            ),
+            'export HOME=/root',
+            'export MXNET_HOME=/mxnet',
+            f'export VTA_DEVICE={self.pci_device}',
+            'cd /root/tvm/',
+            'ip link set lo up',
+            'ip addr add 127.0.0.1/8 dev lo',
+            'echo "127.0.0.1 localhost" >>/etc/hosts',
+            'export PYTHONPATH=/root/tvm/python:${PYTHONPATH}',
+            'export PYTHONPATH=/root/tvm/vta/python:${PYTHONPATH}',
+            'export TVM_TRACKER_HOST=127.0.0.1',
+            'export TVM_TRACKER_PORT=9190',
+            'export VTA_RPC_PORT=9091',
+            'cp /tmp/guest/measure_methods.py /root/tvm/python/tvm/autotvm/measure/measure_methods.py',
+            'python3 -m tvm.exec.rpc_tracker --port=$TVM_TRACKER_PORT &',
+            'sleep 5',
+            'python3 -m tvm.exec.rpc_server --tracker=${TVM_TRACKER_HOST}:$TVM_TRACKER_PORT --key=simbricks-pci --port=$VTA_RPC_PORT &',
+            'sleep 5',
+            'python /tmp/guest/tune_relay_vta.py',
+            # 'cat /tmp/tvm_tuning_errors_*.log'
+        ]
+
+
+class VtaDeployClassification(AppConfig):
+
+    def __init__(self, pci_device: str) -> None:
+        super().__init__()
+        self.pci_device = pci_device
+
+    def config_files(self) -> tp.Dict[str, tp.IO]:
+        synset_path = '/tmp/synset.txt'
+        if not os.path.isfile(synset_path):
+            req = requests.get(
+                'https://github.com/uwsampl/web-data/raw/main/vta/models/synset.txt'
+            )
+            with open(synset_path, 'wb') as file:
+                file.write(req.content)
+
+        cat_path = '/tmp/cat.jpg'
+        if not os.path.isfile(cat_path):
+            req = requests.get(
+                'https://homes.cs.washington.edu/~moreau/media/vta/cat.jpg'
+            )
+            with open(cat_path, 'wb') as file:
+                file.write(req.content)
+
+        return {
+            'deploy_classification.py':
+                open(
+                    '/home/jonask/Repos/tvm-simbricks/vta/tutorials/frontend/deploy_classification.py',
+                    'rb'
+                ),
+            'synset.txt':
+                open(synset_path, 'rb'),
+            'cat.jpg':
+                open(cat_path, 'rb')
+        }
+
+    def run_cmds(self, node):
+        return [
+            'set -x',
+            (
+                'export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:'
+                '/sbin:/bin'
+            ),
+            'export HOME=/root',
+            'export MXNET_HOME=/mxnet',
+            f'export VTA_DEVICE={self.pci_device}',
+            'export VTA_RPC_HOST=127.0.0.1',
+            'export VTA_RPC_PORT=9091',
+            'cd /root/tvm/',
+            'ip link set lo up',
+            'ip addr add 127.0.0.1/8 dev lo',
+            'echo "127.0.0.1 localhost" >>/etc/hosts',
+            'export PYTHONPATH=/root/tvm/python:${PYTHONPATH}',
+            'export PYTHONPATH=/root/tvm/vta/python:${PYTHONPATH}',
+            '/usr/bin/python3 -m vta.exec.rpc_server --host=${VTA_RPC_HOST} --port=${VTA_RPC_PORT} &',
+            'sleep 5',
+            'python /tmp/guest/deploy_classification.py'
         ]
