@@ -20,6 +20,8 @@ apt-get -y install \
     python3-setuptools \
     python3-typing-extensions \
     python3-tornado \
+    python3-willow \
+    python3-pip \
     libtinfo-dev \
     zlib1g-dev \
     build-essential \
@@ -27,7 +29,19 @@ apt-get -y install \
     libedit-dev \
     libxml2-dev \
     llvm-dev \
-    strace
+    strace \
+    libquadmath0 \
+    unzip
+
+
+# install mxnet and clone the model
+pip install mxnet
+mkdir -p /mxnet/models
+cd /mxnet/models
+wget https://apache-mxnet.s3-accelerate.dualstack.amazonaws.com/gluon/models/resnet18_v1-a0666292.zip
+unzip resnet18_v1-a0666292.zip
+rm resnet18_v1-a0666292.zip
+cd /
 
 
 export TVM_HOME=/root/tvm
