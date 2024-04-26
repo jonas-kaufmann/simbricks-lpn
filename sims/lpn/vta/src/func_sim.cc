@@ -420,6 +420,7 @@ class Device {
     auto& matcher = func_req_map[LOAD_INSN];
     matcher.Register(std::move(req));
 
+    std::cout << "Func sim registered" << std::endl;
     // Wait to load all instructions
     {
       std::unique_lock lk(m_proc);
@@ -427,7 +428,6 @@ class Device {
         sim_blocked = true;
         cv.notify_one();
         cv.wait(lk, [] { return !sim_blocked; });
-        matcher.Match(); 
       }
     }
     auto front = matcher.Consume(); 

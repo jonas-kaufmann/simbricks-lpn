@@ -12,6 +12,7 @@
 #include <mutex>
 #include <deque>
 #include <vector>
+#include "sims/lpn/vta/include/vta/driver.h"
 
 // TODO Rename MATCH Interface
 
@@ -72,16 +73,33 @@ class Matcher {
   void Register(std::unique_ptr<MemReq> req) {
     currReq = std::move(req);
     valid = true;
-    Match();
+    MatchAll();
   }
 
-  // Enqueues a buffered request
+  // Matches or Enqueues a buffered request
   void Produce(std::unique_ptr<MemReq> req) {
-    reqs.emplace_back(std::move(req));
+    if (!valid || !MatchReq(req)) {
+      reqs.emplace_back(std::move(req));
+    }
+  }
+  // Consumes the request, need to register again afterwards
+  std::unique_ptr<MemReq> Consume() {
+    std::unique_ptr<MemReq> req = std::move(currReq);
+    valid = false;
+    return req;
   }
 
+  bool isCompleted() {
+    return valid && (currReq->acquired_len == currReq->len);
+  }
+
+  bool isValid() {
+    return valid;
+  }
+
+ private:
   // Matches buffered memory requests in current one
-  void Match() {
+  void MatchAll() {
     auto start = currReq->addr;
     auto end = start + currReq->len;
 
@@ -110,20 +128,29 @@ class Matcher {
       ++it;
     }
   }
+  // Matches a single request
+  bool MatchReq(std::unique_ptr<MemReq>& req) {
+    // Else try to match the request
+    auto start = currReq->addr;
+    auto end = start + currReq->len;
 
-  bool isCompleted() {
-    return (currReq->acquired_len == currReq->len);
-  }
+    if (req->addr + req->len > start && req->addr < end) {
+      // Copy memory
+      auto from = std::max(start, req->addr);
+      auto to = std::min(end, req->addr + req->len);
+      auto offset1 = from - start;
+      auto offset2 = from - req->addr;
+      memcpy(currReq->buffer + offset1, req->buffer + offset2, to - from);
+      currReq->acquired_len += to - from;
 
-  bool isValid() {
-    return valid;
-  }
-
-  // Consumes the request, need to register again afterwards
-  std::unique_ptr<MemReq> Consume() {
-    std::unique_ptr<MemReq> req = std::move(currReq);
-    valid = false;
-    return req;
+      if (to - from < req->len) {
+        assert(0);  // If overlapping requests
+        // Create new request with the correct info
+        // Add it to vector
+      }
+      return true;
+    }
+    return false;
   }
 };
 
