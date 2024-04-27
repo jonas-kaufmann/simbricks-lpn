@@ -21,6 +21,7 @@ sims/net/switch/net_switch
 sims/net/menshen/menshen_hw
 sims/net/menshen/obj_dir
 sims/net/tofino/tofino
+sims/lpn/vta/vta_bm
 doc/doxygen
 doc/_build
 images/farmem/Module.symvers
