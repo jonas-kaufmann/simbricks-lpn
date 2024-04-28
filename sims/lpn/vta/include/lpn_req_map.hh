@@ -156,14 +156,12 @@ class Matcher {
 
 Matcher& enqRequest(uint64_t addr, uint32_t len, int tag, int rw);
 
-extern std::condition_variable cv;
-extern std::mutex m_proc;
-extern bool sim_blocked;
+extern coroutine h;
 extern bool finished;
-
 extern int num_instr;
 
 extern std::map<int, Matcher> func_req_map;
 extern std::map<int, Matcher> perf_req_map;
+
 
 #endif

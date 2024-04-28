@@ -111,7 +111,7 @@ void VTABm::RegWrite(uint8_t bar, uint64_t addr, const void *src,
 
     // Start func simulator thread
     std::cout << "LAUNCHING FUNC SIM THREAD " << std::endl;
-    func_thread = std::thread(VTADeviceRun, vta_func_device, insn_phy_addr, insn_count, 10000000);
+    h = VTADeviceRun(vta_func_device, insn_phy_addr, insn_count, 10000000);
 
     std::cout << "LAUNCHING LPN" << std::endl;
     num_instr = insn_count; // TODO 
@@ -157,6 +157,7 @@ void VTABm::DmaComplete(std::unique_ptr<pciebm::DMAOp> dma_op) {
   if (finished && num_instr == 0) {
     std::cerr << "VTADeviceRun finished " << std::endl;
     Registers_.status = 0x4;
+    h.destroy();
   }
 
   // Run LPN to process received memory
@@ -164,19 +165,9 @@ void VTABm::DmaComplete(std::unique_ptr<pciebm::DMAOp> dma_op) {
 
   auto& matcher = func_req_map[dma_op->tag];
 
-  // Notify funcsim
-  {
-    std::unique_lock lk(m_proc);
-    // Verify if wake up is needed
-    if (matcher.isCompleted()) {
-      if (sim_blocked) {
-        // Notify to wake up
-        sim_blocked = false;
-        cv.notify_one();
-      }
-      // Wait for func sim to process
-      cv.wait(lk, [] { return sim_blocked || finished; });
-    }
+  // f request is completed, wake up FuncSim
+  if (matcher.isCompleted()) {
+    h.resume();
   }
 
   // Schedule next event
@@ -265,8 +256,9 @@ void VTABm::ExecuteEvent(std::unique_ptr<pciebm::TimedEvent> evt) {
   // std::cerr << "insn_phy_addr: " << insn_phy_addr << " insn_count: " << insn_count << std::endl;
 
   if (finished && num_instr == 0) {
-      std::cerr << "VTADeviceRun finished " << std::endl;
-      Registers_.status = 0x4;
+    std::cerr << "VTADeviceRun finished " << std::endl;
+    Registers_.status = 0x4;
+    h.destroy();
   }
 
   // Issue requests enqueued by LPN

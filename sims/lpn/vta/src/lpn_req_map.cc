@@ -4,12 +4,12 @@ std::map<int, std::deque<std::unique_ptr<LpnReq>>> lpn_req_map;
 std::map<int, Matcher> func_req_map;
 std::map<int, Matcher> perf_req_map;
 
-std::condition_variable cv;
-std::mutex m_proc;
-bool sim_blocked;
 bool finished;
 
 int num_instr = 0;
+
+coroutine h;
+
 
 void setupReqQueues(const std::vector<int>& ids) {
   for (const auto& id : ids) {
@@ -30,15 +30,5 @@ Matcher& enqRequest(uint64_t addr, uint32_t len, int tag, int rw) {
   // Register Request to be Matched
   auto& matcher = func_req_map[tag];
   matcher.Register(std::move(req));
-
-  // Wait for Response
-  {
-    std::unique_lock lk(m_proc);
-    while (!matcher.isCompleted()) {
-      sim_blocked = true;
-      cv.notify_one();
-      cv.wait(lk, [] { return !sim_blocked; });
-    }
-  }
   return matcher;
 }

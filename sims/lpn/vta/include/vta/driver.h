@@ -26,6 +26,27 @@
 
 #ifndef VTA_DRIVER_H_
 #define VTA_DRIVER_H_
+#include <coroutine>
+
+struct promise;
+
+// A coroutine is a handle on a promise object
+struct coroutine : std::coroutine_handle<promise> {
+  using promise_type = ::promise;
+};
+
+struct promise {
+  coroutine get_return_object() {
+    return {coroutine::from_promise(*this)};
+  }
+
+  // Never suspend at start, suspend at the end
+  std::suspend_never initial_suspend() noexcept { return {}; }
+  std::suspend_always final_suspend() noexcept { return {}; }
+
+  void return_void() {}
+  void unhandled_exception() {}
+};
 
 #ifdef __cplusplus
 extern "C" {
@@ -92,7 +113,7 @@ void VTADeviceFree(VTADeviceHandle handle);
  *
  * \return 0 if running is successful, 1 if timeout.
  */
-int VTADeviceRun(VTADeviceHandle device,
+coroutine VTADeviceRun(VTADeviceHandle device,
                  vta_phy_addr_t insn_phy_addr,
                  uint32_t insn_count,
                  uint32_t wait_cycles);
