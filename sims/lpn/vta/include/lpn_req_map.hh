@@ -43,6 +43,7 @@ typedef struct DramReq : MemReq {
 extern std::map<int, std::deque<std::unique_ptr<LpnReq>>> lpn_req_map;
 
 void setupReqQueues(const std::vector<int>& ids);
+void ClearReqQueues(const std::vector<int>& ids);
 
 template <typename T>
 std::unique_ptr<T>& frontReq(std::deque<std::unique_ptr<T>>& reqQueue) {
@@ -64,11 +65,22 @@ std::unique_ptr<T> dequeueReq(std::deque<std::unique_ptr<T>>& reqQueue) {
 
 class Matcher {
  private:
+  int tag;
   std::unique_ptr<MemReq> currReq;  
   std::vector<std::unique_ptr<MemReq>> reqs;
   bool valid = false;
 
- public:
+   public:
+    // Default constructor
+    Matcher() = default;
+    explicit Matcher(int id) : tag(id) {}
+   
+    void Clear() {
+      currReq.reset();
+      reqs.clear();
+      valid = false;
+    }
+
   // Registers a request to be matched
   void Register(std::unique_ptr<MemReq> req) {
     currReq = std::move(req);
@@ -90,6 +102,8 @@ class Matcher {
   }
 
   bool isCompleted() {
+    // if(valid && tag == 0)
+      // std::cerr <<"Matcher tag:" << tag <<  " acquired_len: " << currReq->acquired_len << " len: " << currReq->len << std::endl;
     return valid && (currReq->acquired_len == currReq->len);
   }
 
@@ -106,7 +120,6 @@ class Matcher {
     auto it = reqs.begin();
     while (it != reqs.end()) {
       auto req = it->get();
-
       // Check bounds
       if (req->addr + req->len > start && req->addr < end) {
         // Copy memory
@@ -118,11 +131,17 @@ class Matcher {
         currReq->acquired_len += to - from;
 
         if (to - from < req->len) {
+          std::cerr <<"type :" << tag << " Start: " << start << " End: " << end << std::endl;
+          std::cerr << "Checking bounds: " << req->addr << " " << req->len << std::endl;
           assert(0);  // If overlapping requests
           // Create new request with the correct info
           // Add it to vector
         }
+        
         it = reqs.erase(it);
+        if (currReq->acquired_len == currReq->len) {
+          break;
+        }
         continue;
       }
       ++it;

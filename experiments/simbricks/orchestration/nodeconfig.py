@@ -894,7 +894,16 @@ class VTAMatMul(AppConfig):
     def __init__(self, pci_device: str) -> None:
         super().__init__()
         self.pci_device = pci_device
-
+    
+    def config_files(self) -> tp.Dict[str, tp.IO]:
+        return {
+            'matrix_multiply_opt.py':
+                open(
+                    '/home/jiacma/npc/simbricks-lpn/tvm/vta/tutorials/optimize/matrix_multiply_opt.py',
+                    'rb'
+                ),
+        }
+    
     def run_cmds(self, node):
         return [
             'set -x',
@@ -912,6 +921,7 @@ class VTAMatMul(AppConfig):
             'echo "127.0.0.1 localhost" >>/etc/hosts',
             'export PYTHONPATH=/root/tvm/python:${PYTHONPATH}',
             'export PYTHONPATH=/root/tvm/vta/python:${PYTHONPATH}',
+            'cp /tmp/guest/matrix_multiply_opt.py vta/tutorials/optimize/matrix_multiply_opt.py',
             '/usr/bin/python3 -m vta.exec.rpc_server --host=${VTA_RPC_HOST} --port=${VTA_RPC_PORT} &',
             'sleep 5',
             'python vta/tutorials/optimize/matrix_multiply_opt.py'
@@ -928,12 +938,12 @@ class VtaAutoTune(AppConfig):
         return {
             'tune_relay_vta.py':
                 open(
-                    '/home/jonask/Repos/tvm-simbricks/vta/tutorials/autotvm/tune_relay_vta.py',
+                    '/home/jiacma/npc/simbricks-lpn/tvm/vta/tutorials/autotvm/tune_relay_vta.py',
                     'rb'
                 ),
             'measure_methods.py':
                 open(
-                    '/home/jonask/Repos/tvm-simbricks/python/tvm/autotvm/measure/measure_methods.py',
+                    '/home/jiacma/npc/simbricks-lpn/tvm/python/tvm/autotvm/measure/measure_methods.py',
                     'rb'
                 )
         }
@@ -958,11 +968,12 @@ class VtaAutoTune(AppConfig):
             'export TVM_TRACKER_PORT=9190',
             'export VTA_RPC_PORT=9091',
             'cp /tmp/guest/measure_methods.py /root/tvm/python/tvm/autotvm/measure/measure_methods.py',
-            'python3 -m tvm.exec.rpc_tracker --port=$TVM_TRACKER_PORT &',
+            'python3 -m tvm.exec.rpc_tracker --host=${TVM_TRACKER_HOST}  --port=${TVM_TRACKER_PORT} > log_out & ',
             'sleep 5',
-            'python3 -m tvm.exec.rpc_server --tracker=${TVM_TRACKER_HOST}:$TVM_TRACKER_PORT --key=simbricks-pci --port=$VTA_RPC_PORT &',
+            'python3 -m vta.exec.rpc_server --tracker=${TVM_TRACKER_HOST}:${TVM_TRACKER_PORT} --key=simbricks-pci --port=${VTA_RPC_PORT} &',
             'sleep 5',
-            'python /tmp/guest/tune_relay_vta.py',
+            'python3 -m tvm.exec.query_rpc_tracker --host=${TVM_TRACKER_HOST} --port=${TVM_TRACKER_PORT}',
+            'python3 /tmp/guest/tune_relay_vta.py',
             # 'cat /tmp/tvm_tuning_errors_*.log'
         ]
 

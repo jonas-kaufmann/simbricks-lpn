@@ -155,8 +155,11 @@ static const int kElemBytes = (kBits * kLane + 7) / 8;
   int Load(const VTAMemInsn* op, uint64_t* load_counter, bool skip_exec,
            uint64_t tag) {
     load_counter[0] += (op->x_size * op->y_size) * kElemBytes;
-    if (skip_exec)
+    if (skip_exec){
+      assert(0);
       return 0;
+    }
+
     DType* sram_ptr = data_ + op->sram_base;
     uint8_t* dram_ptr = reinterpret_cast<uint8_t*>(op->dram_base * kElemBytes);
 
@@ -173,6 +176,7 @@ static const int kElemBytes = (kBits * kLane + 7) / 8;
       sram_ptr += op->x_pad_0;
 
       // insert DRAM req
+      // std::cerr << "Func-sim request: " << tag << " " << (uint64_t)dram_ptr << " " << kElemBytes * op->x_size << " " << kElemBytes << " "<<  op->x_size<< std::endl;
       auto& matcher = enqRequest((uint64_t)dram_ptr, kElemBytes * op->x_size, tag, READ_REQ);
       auto front = matcher.Consume(); 
       // Adapt to code
@@ -281,55 +285,63 @@ static const int kElemBytes = (kBits * kLane + 7) / 8;
     CHECK_EQ(op->y_pad_0, 0);
     CHECK_EQ(op->y_pad_1, 0);
     int target_width = (target_bits * kLane + 7) / 8;
-    auto len = ((op->y_size - 1) * op->x_stride + op->x_size - 1) * kLane + kLane;
-    if (len == 0){
-      return 0;
-    }
-
     uint64_t req_addr = op->dram_base * target_width;
-    
     BitPacker<kBits> src(data_ + op->sram_base);
 
     // Create new store Request
-    auto req = std::make_unique<DramReq>();
-    req->addr = req_addr;
-    req->id = STORE_ID;
-    req->len = len;
-    req->rw = WRITE_REQ;
-    req->buffer = calloc(req->len, 1);
+    // auto req = std::make_unique<DramReq>();
+    // req->addr = req_addr;
+    // req->id = STORE_ID;
+    // req->len = len;
+    // req->rw = WRITE_REQ;
+    // req->buffer = calloc(req->len, 1);
 
-    BitPacker<target_bits> dst(req->buffer);
-    uint8_t* head = (uint8_t*) req->buffer;
+    // BitPacker<target_bits> dst(req->buffer);
+    // uint8_t* head = (uint8_t*) req->buffer;
     int cnt = 0;
     for (uint32_t y = 0; y < op->y_size; ++y) {
       for (uint32_t x = 0; x < op->x_size; ++x) {
         uint32_t sram_base = y * op->x_size + x;
         uint32_t dram_base = y * op->x_stride + x;
+        auto req = std::make_unique<DramReq>();
+        req->addr = req_addr+dram_base*kLane*target_bits/8;
+        req->id = STORE_ID;
+        req->len = kLane*target_bits/8;
+        req->rw = WRITE_REQ;
+        req->buffer = calloc(req->len, 1);
+        BitPacker<target_bits> dst(req->buffer);
+        // std::cerr << "Func-sim: store request " << req->addr << " " << req->len << "kLane" << kLane << std::endl;
         for (int i = 0; i < kLane; ++i) {
-          dst.SetSigned(dram_base * kLane + i,
+          dst.SetSigned(i,
                         src.GetSigned(sram_base * kLane + i));
+          // dst.SetSigned(dram_base * kLane + i,
+          //               src.GetSigned(sram_base * kLane + i));
+          
           // //std::cerr<< dst.GetSigned(dram_base * kLane + i) << std::endl;
           // //std::cerr<< (uint32_t)head[dram_base * kLane + i] << std::endl;
-          assert(dst.GetSigned(dram_base * kLane + i) ==
-                 (uint32_t)head[dram_base * kLane + i]);
+          // assert(dst.GetSigned(dram_base * kLane + i) ==
+          //        (uint32_t)head[dram_base * kLane + i]);
           // //std::cerr << " y_size" << op->y_size << " x_size" << op->x_size
           // << " x_stride" << op->x_stride << " kLane" << kLane << " sram_base"
           // << sram_base * kLane + i << "index" << dram_base * kLane + i <<
           // std::endl;
           cnt++;
         }
+        auto& matcher = perf_req_map[STORE_ID];
+        matcher.Produce(std::move(req));
       }
     }
 
-    assert(("len mismatch %d %d\n", req->len, cnt) && req->len == cnt);
+    // std::cerr << "len mismatch? " << req->len << " " << cnt << std::endl;
+    // assert(("len mismatch %d %d\n", req->len, cnt) && req->len == cnt);
     
     // std::cerr << "enq store request " << req->addr << " " << req->len << "
     // target_bits=" << target_bits << " target_width="<< target_width << "
     // KLane=" << kLane<< std::endl;
 
     // Produce Store request
-    auto& matcher = perf_req_map[STORE_ID];
-    matcher.Produce(std::move(req));
+    // auto& matcher = perf_req_map[STORE_ID];
+    // matcher.Produce(std::move(req));
 
     return 0;
   }
@@ -444,7 +456,7 @@ class Device {
 
       // Exit loop on last instruction
       if (insn_holder == insn_count && front->len == front->acquired_len) {
-        std::cout << "Last instruction reached!" << std::endl;
+        std::cerr << "Last instruction reached!" << std::endl;
         break;
       }
     }
@@ -695,6 +707,8 @@ VTADeviceHandle VTADeviceAlloc() {
 }
 
 void VTADeviceFree(VTADeviceHandle handle) {
+  finished = false;
+  sim_blocked = false;
   delete static_cast<vta::sim::Device*>(handle);
 }
 

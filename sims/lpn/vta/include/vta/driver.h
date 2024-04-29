@@ -37,12 +37,12 @@ extern "C" {
 #define CHECK_EQ(x, y) assert(x == y)
 
 
-#define LOAD_ACC_ID 0
-#define LOAD_INP_ID 1
-#define LOAD_WGT_ID 2
-#define LOAD_UOP_ID 3
-#define STORE_ID 4
-#define LOAD_INSN 5
+#define LOAD_INSN 0
+#define LOAD_ACC_ID 1
+#define LOAD_INP_ID 2
+#define LOAD_WGT_ID 3
+#define LOAD_UOP_ID 4
+#define STORE_ID 5
 
 #include <stdint.h>
 #include <stdlib.h>

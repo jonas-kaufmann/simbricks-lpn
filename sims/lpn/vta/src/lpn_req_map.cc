@@ -6,18 +6,28 @@ std::map<int, Matcher> perf_req_map;
 
 std::condition_variable cv;
 std::mutex m_proc;
-bool sim_blocked;
-bool finished;
+bool sim_blocked = false;
+bool finished = false;
 
 int num_instr = 0;
 
 void setupReqQueues(const std::vector<int>& ids) {
   for (const auto& id : ids) {
     lpn_req_map[id] = std::deque<std::unique_ptr<LpnReq>>();
-    func_req_map[id] = Matcher();
-    perf_req_map[id] = Matcher();
+    func_req_map[id] = Matcher(id);
+    perf_req_map[id] = Matcher(id);
   }
 }
+
+
+void ClearReqQueues(const std::vector<int>& ids) {
+  for (const auto& id : ids) {
+    lpn_req_map[id].clear();
+    func_req_map[id].Clear();
+    perf_req_map[id].Clear();
+  }
+}
+
 
 Matcher& enqRequest(uint64_t addr, uint32_t len, int tag, int rw) {
   auto req = std::make_unique<DramReq>();
@@ -26,7 +36,6 @@ Matcher& enqRequest(uint64_t addr, uint32_t len, int tag, int rw) {
   req->rw = READ_REQ;
   req->len = len;
   req->buffer = calloc(1, len);
-
   // Register Request to be Matched
   auto& matcher = func_req_map[tag];
   matcher.Register(std::move(req));

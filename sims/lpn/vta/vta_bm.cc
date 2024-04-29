@@ -35,6 +35,7 @@ namespace {
 VTABm vta_sim{};
 VTADeviceHandle vta_func_device;
 std::thread func_thread;
+std::vector<int> ids = {LOAD_INSN, LOAD_INP_ID, LOAD_WGT_ID, LOAD_ACC_ID, LOAD_UOP_ID, STORE_ID};
 
 void sigint_handler(int dummy) {
   vta_sim.SIGINTHandler();
@@ -63,8 +64,7 @@ void VTABm::SetupIntro(struct SimbricksProtoPcieDevIntro &dev_intro) {
   dev_intro.bars[0].flags = 0;
 
   // setup LPN initial state
-  vta_func_device = VTADeviceAlloc();
-  auto ids = std::vector<int>{LOAD_INSN, LOAD_INP_ID, LOAD_WGT_ID, LOAD_ACC_ID, LOAD_UOP_ID, STORE_ID};
+  // auto ids = std::vector<int>{LOAD_INSN, LOAD_INP_ID, LOAD_WGT_ID, LOAD_ACC_ID, LOAD_UOP_ID, STORE_ID};
   setupReqQueues(ids);
   lpn_init();
 }
@@ -101,20 +101,28 @@ void VTABm::RegWrite(uint8_t bar, uint64_t addr, const void *src,
               << " len=" << len << " value=" << (*((uint32_t*)(src))) <<"\n";
   std::memcpy(reinterpret_cast<uint8_t *>(&Registers_) + addr, src, len);
   
+  if (addr == 20 && (Registers_._0x14 & 0x1) == 0x1) {
+    std::cerr << "Resetting vtabm and lpn" << std::endl;
+    lpn_reset();
+    std::memset(reinterpret_cast<uint8_t *>(&Registers_), 0, 36);
+    return;
+  }
+
   uint32_t start = (Registers_.status & 0x1) == 0x1;
-  if (start){
+  if (start && lpn_started==false){
 
     uint64_t insn_phy_addr = Registers_.insn_phy_addr_hh; 
     insn_phy_addr = insn_phy_addr << 32 | Registers_.insn_phy_addr_lh;
-    uint32_t insn_count = NUM_INSN;//Registers_.insn_count;
+    uint32_t insn_count = Registers_.insn_count;
     std::cout << "insn_phy_addr: " << insn_phy_addr << " insn_count: " << insn_count << std::endl;
 
     // Start func simulator thread
     std::cout << "LAUNCHING FUNC SIM THREAD " << std::endl;
+    vta_func_device = VTADeviceAlloc();
     func_thread = std::thread(VTADeviceRun, vta_func_device, insn_phy_addr, insn_count, 10000000);
-
-    std::cout << "LAUNCHING LPN" << std::endl;
+    
     num_instr = insn_count; // TODO 
+    std::cout << "LAUNCHING LPN with insns: " << num_instr<<std::endl;
     lpn_start(insn_phy_addr, insn_count, sizeof(VTAGenericInsn));
 
     // Start simulating the LPN immediately
@@ -153,17 +161,11 @@ void VTABm::DmaComplete(std::unique_ptr<pciebm::DMAOp> dma_op) {
     lpn_req->acquired_len += dma_op->len;
   }
 
-  // Check for end condition
-  if (finished && num_instr == 0) {
-    std::cerr << "VTADeviceRun finished " << std::endl;
-    Registers_.status = 0x4;
-  }
 
   // Run LPN to process received memory
   uint64_t next_ts = NextCommitTime(t_list, T_SIZE); 
 
   auto& matcher = func_req_map[dma_op->tag];
-
   // Notify funcsim
   {
     std::unique_lock lk(m_proc);
@@ -177,6 +179,18 @@ void VTABm::DmaComplete(std::unique_ptr<pciebm::DMAOp> dma_op) {
       // Wait for func sim to process
       cv.wait(lk, [] { return sim_blocked || finished; });
     }
+  }
+
+  // Check for end condition
+  if (finished && lpn_finished() && next_ts == lpn::LARGE) {
+    std::cerr << "DMAcomplete: VTADeviceRun finished " << std::endl;
+    func_thread.join();
+    VTADeviceFree(vta_func_device);
+    lpn_end();
+    ClearReqQueues(ids);
+    Registers_.status = 0x2;
+    TransitionCountLog(t_list, T_SIZE);
+    return ;
   }
 
   // Schedule next event
@@ -194,11 +208,6 @@ void VTABm::DmaComplete(std::unique_ptr<pciebm::DMAOp> dma_op) {
         auto evt = std::make_unique<pciebm::TimedEvent>();
         evt->time = next_ts;
         EventSchedule(std::move(evt));
-      }
-      if( next_ts == lpn::LARGE && Registers_.status == 0x4 && !next_scheduled ){
-        Registers_.status = 0x2;
-        TransitionCountLog(t_list, T_SIZE);
-        return;
       }
 
   // Issue requests enqueued by LPN
@@ -234,12 +243,22 @@ void VTABm::ExecuteEvent(std::unique_ptr<pciebm::TimedEvent> evt) {
     if (next_ts > evt->time) break;
   }
 
-    if (next_ts == lpn::LARGE && Registers_.status == 0x4) {
-    Registers_.status = 0x2;
-    TransitionCountLog(t_list, T_SIZE);
-    return;
+  {
+    for (int i=0; i<5; i++){
+      auto& matcher = func_req_map[i];
+      std::unique_lock lk(m_proc);
+      // Verify if wake up is needed
+      if (matcher.isCompleted()) {
+        if (sim_blocked) {
+          // Notify to wake up
+          sim_blocked = false;
+          cv.notify_one();
+        }
+        // Wait for func sim to process
+        cv.wait(lk, [] { return sim_blocked || finished; });
+      }
+    }
   }
-
 #if VTA_DEBUG
   std::cerr << "lpn exec: evt time=" << evt->time << " TimePs=" << TimePs()
             << " next_ts=" << next_ts <<  " lpnLarge=" << lpn::LARGE << "\n";
@@ -263,10 +282,16 @@ void VTABm::ExecuteEvent(std::unique_ptr<pciebm::TimedEvent> evt) {
   insn_phy_addr = insn_phy_addr << 32 | Registers_.insn_phy_addr_lh;
   // uint32_t insn_count = NUM_INSN;//Registers_.insn_count;
   // std::cerr << "insn_phy_addr: " << insn_phy_addr << " insn_count: " << insn_count << std::endl;
-
-  if (finished && num_instr == 0) {
+  // std::cerr << "Remaining insns " << num_instr << std::endl;
+  if (finished && lpn_finished() && next_ts == lpn::LARGE) {
       std::cerr << "VTADeviceRun finished " << std::endl;
-      Registers_.status = 0x4;
+      func_thread.join();
+      VTADeviceFree(vta_func_device);
+      ClearReqQueues(ids);
+      lpn_end();
+      Registers_.status = 0x2;
+      TransitionCountLog(t_list, T_SIZE);
+      return;
   }
 
   // Issue requests enqueued by LPN
@@ -287,11 +312,11 @@ void VTABm::ExecuteEvent(std::unique_ptr<pciebm::TimedEvent> evt) {
       req->inflight = true;
     }
   }
-  if (next_ts == lpn::LARGE && Registers_.status == 0x4 && !next_scheduled) {
-    Registers_.status = 0x2;
-    TransitionCountLog(t_list, T_SIZE);
-    return;
-  }
+  // if (next_ts == lpn::LARGE && Registers_.status == 0x4 && !next_scheduled) {
+  //   Registers_.status = 0x2;
+  //   TransitionCountLog(t_list, T_SIZE);
+  //   return;
+  // }
 }
 
 void VTABm::DevctrlUpdate(

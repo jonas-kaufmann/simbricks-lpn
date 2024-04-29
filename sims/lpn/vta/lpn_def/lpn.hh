@@ -234,53 +234,78 @@ std::function<uint64_t()> delay_t9() {
     };
     return delay;
 };
+
+static int nth_store = 0;
 template<typename T>
 std::function<uint64_t()> delay_store(Place<T>& dependent_place) {
     auto delay = [&]() -> uint64_t {
         uint64_t insn_ptr = (uint64_t)&(dependent_place.tokens[0]->insn);
-        // uint64_t dram_addr = GetMemOpAddr(STORE_ID, (uint64_t)insn_ptr, &req_len);
         std::vector<uint64_t> addrList;
         std::vector<uint32_t> sizeList;
         GetMemOpAddr(STORE_ID, (uint64_t)insn_ptr, addrList, sizeList);
-        assert(addrList.size() == 1);
-        auto dram_addr = addrList[0];
-        auto req_len = sizeList[0];
-
-        auto& matcher = perf_req_map[STORE_ID];
-        auto& front = frontReq(lpn_req_map[STORE_ID]);
-
-        // If no ongoing dma request
-        if (lpn_req_map[STORE_ID].empty()) {
-          if (!matcher.isValid()) {
-            // Register a new Store request
-            auto req = std::make_unique<LpnReq>();
-            req->id = STORE_ID;
-            req->rw = WRITE_REQ;
-            req->len = req_len;
-            req->addr = dram_addr;
-            req->buffer = calloc(req_len, 1);
-            matcher.Register(std::move(req));
-          }
-
-          // Try to consume and enqueue dma request
-          if (matcher.isCompleted()) {
-            auto req = matcher.Consume();
-            auto r = std::make_unique<LpnReq>();  // not clean but type problem
-            r->id = STORE_ID;
-            r->rw = WRITE_REQ;
-            r->len = req->len;
-            r->addr = req->addr;
-            r->buffer = calloc(req->len, 1);
-            memcpy(r->buffer, req->buffer, req->len);
-            enqueueReq(lpn_req_map[STORE_ID], std::move(r));
-          }
-          return lpn::LARGE;
-        } else {
-          if (front->acquired_len == front->len) {
-            dequeueReq(lpn_req_map[STORE_ID]);
+        if (addrList.empty()){
             num_instr--;
             return 0;
-          }
+        }
+        auto& matcher = perf_req_map[STORE_ID];
+
+        // If lpn_req_map is not all filled
+        // std::cerr << "Two sizes: " << lpn_req_map[STORE_ID].size() << " addList:" << addrList.size() <<
+        // " n_th store " << nth_store << std::endl;
+
+        if (nth_store < addrList.size()) {
+            for (int i=nth_store; i < addrList.size(); i++) {
+                auto dram_addr = addrList[i];
+                auto req_len = sizeList[i];
+                if (req_len == 0) {
+                    nth_store += 1;
+                    continue;
+                }
+                if (!matcher.isValid()) {
+                    // Register a new Store request
+                    auto req = std::make_unique<LpnReq>();
+                    req->id = STORE_ID;
+                    req->rw = WRITE_REQ;
+                    req->len = req_len;
+                    req->addr = dram_addr;
+                    req->buffer = calloc(req_len, 1);
+                    matcher.Register(std::move(req));
+                }
+                // Try to consume and enqueue dma request
+                if (matcher.isCompleted()) {
+                    auto req = matcher.Consume();
+                    auto r = std::make_unique<LpnReq>();  // not clean but type problem
+                    r->id = STORE_ID;
+                    r->rw = WRITE_REQ;
+                    r->len = req->len;
+                    r->addr = req->addr;
+                    r->buffer = calloc(req->len, 1);
+                    memcpy(r->buffer, req->buffer, req->len);
+                    enqueueReq(lpn_req_map[STORE_ID], std::move(r));
+                    nth_store += 1;
+                }else{
+                    return lpn::LARGE;
+                }
+            }
+            assert(lpn_req_map[STORE_ID].size() == addrList.size());
+            return lpn::LARGE;
+        } else {
+            // std::cerr << "store_id is full, flesh out" << std::endl;
+            while(1){
+                auto& front = frontReq(lpn_req_map[STORE_ID]);
+                if(lpn_req_map[STORE_ID].empty()){
+                    // std::cerr << "store insn finished, reset nth_store" << std::endl;  
+                    nth_store = 0;
+                    num_instr--;   
+                    // std::cerr << "should be this one " << num_instr << std::endl;                                                    
+                    return 0;                                                          
+                }                                                                      
+                if (front->acquired_len == front->len) {   
+                    dequeueReq(lpn_req_map[STORE_ID]);                            
+                } else {                                                               
+                    break;                                                             
+                }               
+            }
         }
         return lpn::LARGE;
     };
@@ -338,7 +363,7 @@ std::function<uint64_t()> delay_start(Place<T>& dependent_place) {
                 dependent_place.tokens[0]->insn.data1_ = *(uint64_t*)front->buffer; 
                 dependent_place.tokens[0]->insn.data2_ = *((uint64_t*)front->buffer+1);
                 func_req_map[tag].Produce(dequeueReq(lpn_req_map[tag]));
-                return 10;
+                return 0;
             }
         }
         return lpn::LARGE;

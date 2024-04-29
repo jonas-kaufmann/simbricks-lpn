@@ -11,12 +11,15 @@
 template <int kBits, int kLane, int kMaxNumElem>
 struct SRAM_{
   static const int kElemBytes = (kBits * kLane + 7) / 8;
+  const int _kLane = kLane;
+  const int _kbits = kBits;
 };
 
 template <int target_bits, int kLane>
 struct Store_{
-  const int targetWidth = (target_bits * kLane + 7) / 8;
+  const int _target_width = (target_bits * kLane + 7) / 8;
   const int _kLane = kLane;
+  const int _target_bits = target_bits;
 };
 
 struct MemOpAddrUnit{
@@ -50,7 +53,7 @@ int GetMemOpAddr(int tag, uint64_t insn_ptr, std::vector<uint64_t>& addrList, st
     kElemBytes = memOpHelper.uop_.kElemBytes;
     base_addr = reinterpret_cast<uint64_t>(dram_base * memOpHelper.uop_.kElemBytes);
   } else if (tag == STORE_ID){
-    base_addr = reinterpret_cast<uint64_t>(dram_base * memOpHelper.store_.targetWidth);
+    base_addr = reinterpret_cast<uint64_t>(dram_base * memOpHelper.store_._target_width);
   }
 
   if (tag == LOAD_INP_ID || tag == LOAD_WGT_ID || tag == LOAD_ACC_ID || tag == LOAD_UOP_ID) {
@@ -58,14 +61,24 @@ int GetMemOpAddr(int tag, uint64_t insn_ptr, std::vector<uint64_t>& addrList, st
     for (uint32_t y = 0; y < c.mem.y_size; ++y) {
       uint64_t addr = base_addr + i;
       uint32_t size = kElemBytes * c.mem.x_size;
+      // std::cerr << "perf-sim request: " << tag << " " << addr << " " << size << " " << kElemBytes << " "<< c.mem.x_size << std::endl;
       addrList.push_back(addr);
       sizeList.push_back(size);
       i += kElemBytes * c.mem.x_stride;
+
     }
   } else if (tag == STORE_ID) {
-    uint32_t len = ((c.mem.y_size - 1) * c.mem.x_stride + c.mem.x_size - 1) * memOpHelper.store_._kLane + memOpHelper.store_._kLane;
-    addrList.push_back(base_addr);
-    sizeList.push_back(len);
+     for (uint32_t y = 0; y < c.mem.y_size; ++y) {
+      for (uint32_t x = 0; x < c.mem.x_size; ++x) {
+        uint32_t dram_base = y * c.mem.x_stride + x;
+        addrList.push_back(base_addr+dram_base*memOpHelper.store_._kLane*memOpHelper.store_._target_bits/8);
+        sizeList.push_back(memOpHelper.store_._kLane*memOpHelper.store_._target_bits/8);
+        // std::cerr << "Perf-sim: GetMemOpAddr: " << tag << "addr " << base_addr+dram_base*memOpHelper.store_._kLane*memOpHelper.store_._target_bits/8 << " len" << memOpHelper.store_._kLane*memOpHelper.store_._target_bits/8 << std::endl;
+      }
+    }
+    // uint32_t len = ((c.mem.y_size - 1) * c.mem.x_stride + c.mem.x_size - 1) * memOpHelper.store_._kLane + memOpHelper.store_._kLane;
+    // addrList.push_back(base_addr);
+    // sizeList.push_back(len);
   }
   // std::cerr << "GetMemOpAddr: " << tag << " " << addrList.size() << " " << sizeList.size() << std::endl;
   return 0;
