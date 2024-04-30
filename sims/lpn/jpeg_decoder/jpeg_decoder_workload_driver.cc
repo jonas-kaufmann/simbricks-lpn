@@ -72,13 +72,13 @@ int main(int argc, char *argv[]) {
 
   // submit image to decode
   std::cout << "info: submitting image to jpeg decoder\n";
-  jpeg_decoder_regs.src = dma_src_addr;
-  jpeg_decoder_regs.dst = dma_dst_addr;
   #if DEBUG
   verilator_regs.tracing_active = true;
   #endif
   std::chrono::steady_clock::time_point begin =
       std::chrono::steady_clock::now();
+  jpeg_decoder_regs.src = dma_src_addr;
+  jpeg_decoder_regs.dst = dma_dst_addr;
 
   // invoke accelerator
   jpeg_decoder_regs.ctrl = dma_src_len | CTRL_REG_START_BIT;
