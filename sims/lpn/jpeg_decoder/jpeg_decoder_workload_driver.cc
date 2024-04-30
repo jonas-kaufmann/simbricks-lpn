@@ -58,7 +58,7 @@ int main(int argc, char *argv[]) {
       *static_cast<volatile JpegDecoderRegs *>(bar0);
   #if DEBUG
   volatile VerilatorRegs &verilator_regs =
-      *static_cast<volatile VerilatorRegs *>(bar0);
+      *static_cast<volatile VerilatorRegs *>(bar1);
   #endif
 
   if (jpeg_decoder_regs.isBusy) {
