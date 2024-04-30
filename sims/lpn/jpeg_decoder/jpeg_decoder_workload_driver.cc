@@ -5,15 +5,9 @@
 
 #include <chrono>
 #include <cstdint>
-#include <fstream>
-#include <ios>
 #include <iostream>
-#include <memory>
-#include <ratio>
-#include <sstream>
 #include <string>
 #include <thread>
-#include <vector>
 
 #include "include/jpeg_decoder_regs.hh"
 #include "include/vfio.hh"
@@ -40,13 +34,13 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
-  #if DEBUG
+#if DEBUG
   void *bar1;
   if (vfio_map_region(vfio_fd, 1, &bar1, &reg_len)) {
     std::cerr << "vfio_map_region for bar 1 failed" << std::endl;
     return 1;
   }
-  #endif
+#endif
 
   // required for DMA
   if (vfio_busmaster_enable(vfio_fd)) {
@@ -56,10 +50,10 @@ int main(int argc, char *argv[]) {
 
   volatile JpegDecoderRegs &jpeg_decoder_regs =
       *static_cast<volatile JpegDecoderRegs *>(bar0);
-  #if DEBUG
+#if DEBUG
   volatile VerilatorRegs &verilator_regs =
       *static_cast<volatile VerilatorRegs *>(bar1);
-  #endif
+#endif
 
   if (jpeg_decoder_regs.isBusy) {
     std::cerr << "error: jpeg decoder is unexpectedly busy\n";
@@ -72,9 +66,9 @@ int main(int argc, char *argv[]) {
 
   // submit image to decode
   std::cout << "info: submitting image to jpeg decoder\n";
-  #if DEBUG
+#if DEBUG
   verilator_regs.tracing_active = true;
-  #endif
+#endif
   std::chrono::steady_clock::time_point begin =
       std::chrono::steady_clock::now();
   jpeg_decoder_regs.src = dma_src_addr;
@@ -91,9 +85,9 @@ int main(int argc, char *argv[]) {
   // report duration
   std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
 
-  #if DEBUG
+#if DEBUG
   verilator_regs.tracing_active = false;
-  #endif
+#endif
 
   std::cout << "duration: "
             << std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin)
