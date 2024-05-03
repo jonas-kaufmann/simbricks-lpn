@@ -11,6 +11,7 @@
 #include <iostream>
 #include <memory>
 #include <thread>
+#include <sys/time.h>
 
 #include <simbricks/pciebm/pciebm.hh>
 
@@ -35,6 +36,7 @@ namespace {
 VTABm vta_sim{};
 VTADeviceHandle vta_func_device;
 std::thread func_thread;
+double start_time;
 std::vector<int> ids = {LOAD_INSN, LOAD_INP_ID, LOAD_WGT_ID, LOAD_ACC_ID, LOAD_UOP_ID, STORE_ID};
 
 void sigint_handler(int dummy) {
@@ -116,13 +118,30 @@ void VTABm::RegWrite(uint8_t bar, uint64_t addr, const void *src,
     uint32_t insn_count = Registers_.insn_count;
     std::cout << "insn_phy_addr: " << insn_phy_addr << " insn_count: " << insn_count << std::endl;
 
+    struct timeval tp;
+    gettimeofday(&tp, NULL);
+    start_time = double(tp.tv_sec) + tp.tv_usec / double(1000000);
+
     // Start func simulator thread
-    std::cout << "LAUNCHING FUNC SIM THREAD " << std::endl;
+    std::cerr << "LAUNCHING FUNC SIM THREAD " << std::endl;
     vta_func_device = VTADeviceAlloc();
     func_thread = std::thread(VTADeviceRun, vta_func_device, insn_phy_addr, insn_count, 10000000);
-    
-    num_instr = insn_count; // TODO 
-    std::cout << "LAUNCHING LPN with insns: " << num_instr<<std::endl;
+
+    // Wait for func sim to register first request
+    {
+      std::unique_lock lk(m_proc);
+      // Verify if wake up is needed
+      if (sim_blocked) {
+        // Notify to wake up
+        sim_blocked = false;
+        cv.notify_one();
+      }
+      // Wait for func sim to process
+      cv.wait(lk, [] { return sim_blocked || finished; });
+    }
+
+    num_instr = insn_count;
+    std::cerr << "LAUNCHING LPN with insns: " << num_instr << std::endl;
     lpn_start(insn_phy_addr, insn_count, sizeof(VTAGenericInsn));
 
     // Start simulating the LPN immediately
@@ -188,6 +207,12 @@ void VTABm::DmaComplete(std::unique_ptr<pciebm::DMAOp> dma_op) {
     VTADeviceFree(vta_func_device);
     lpn_end();
     ClearReqQueues(ids);
+
+    struct timeval tp;
+    gettimeofday(&tp, NULL);
+    double end = double(tp.tv_sec) + (tp.tv_usec / double(1000000));
+    std::cerr << "EXECUTION TIME: " << (end - start_time) << " seconds" << std::endl;
+
     Registers_.status = 0x2;
     TransitionCountLog(t_list, T_SIZE);
     return ;
@@ -243,22 +268,6 @@ void VTABm::ExecuteEvent(std::unique_ptr<pciebm::TimedEvent> evt) {
     if (next_ts > evt->time) break;
   }
 
-  {
-    for (int i=0; i<5; i++){
-      auto& matcher = func_req_map[i];
-      std::unique_lock lk(m_proc);
-      // Verify if wake up is needed
-      if (matcher.isCompleted()) {
-        if (sim_blocked) {
-          // Notify to wake up
-          sim_blocked = false;
-          cv.notify_one();
-        }
-        // Wait for func sim to process
-        cv.wait(lk, [] { return sim_blocked || finished; });
-      }
-    }
-  }
 #if VTA_DEBUG
   std::cerr << "lpn exec: evt time=" << evt->time << " TimePs=" << TimePs()
             << " next_ts=" << next_ts <<  " lpnLarge=" << lpn::LARGE << "\n";
@@ -289,6 +298,12 @@ void VTABm::ExecuteEvent(std::unique_ptr<pciebm::TimedEvent> evt) {
       VTADeviceFree(vta_func_device);
       ClearReqQueues(ids);
       lpn_end();
+
+      struct timeval tp;
+      gettimeofday(&tp, NULL);
+      double end = double(tp.tv_sec) + (tp.tv_usec / double(1000000));
+      std::cerr << "EXECUTION TIME: " << (end - start_time) << " seconds" << std::endl;
+
       Registers_.status = 0x2;
       TransitionCountLog(t_list, T_SIZE);
       return;
