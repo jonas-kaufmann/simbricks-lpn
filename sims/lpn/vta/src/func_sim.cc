@@ -432,7 +432,7 @@ class Device {
     auto& matcher = func_req_map[LOAD_INSN];
     matcher.Register(std::move(req));
 
-    std::cout << "Func sim registered" << std::endl;
+    std::cerr << "Func sim registered" << std::endl;
     // Wait to load all instructions
     {
       std::unique_lock lk(m_proc);

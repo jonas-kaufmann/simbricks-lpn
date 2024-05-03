@@ -102,8 +102,6 @@ class Matcher {
   }
 
   bool isCompleted() {
-    // if(valid && tag == 0)
-      // std::cerr <<"Matcher tag:" << tag <<  " acquired_len: " << currReq->acquired_len << " len: " << currReq->len << std::endl;
     return valid && (currReq->acquired_len == currReq->len);
   }
 
