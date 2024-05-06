@@ -36,8 +36,7 @@ jpeg_decoder_search_paths := $(addprefix $(d),rtl/src_v rtl/jpeg_core/src_v)
 $(verilator_mk_jpeg_decoder): $(lib_simbricks)
 	$(VERILATOR) $(VFLAGS) --cc -O3 \
 		--trace --no-trace-top --no-trace-params --trace-underscore \
-		-CFLAGS "-I$(abspath $(lib_dir)) -iquote $(abspath $(base_dir)) -fsanitize=address -Og -g" \
-		-LDFLAGS "-fsanitize=address -static-libasan" \
+		-CFLAGS "-I$(abspath $(lib_dir)) -iquote $(abspath $(base_dir))" \
 		--Mdir $(verilator_obj_dir) \
 		--exe \
 		$(addprefix -y ,$(jpeg_decoder_search_paths)) \
