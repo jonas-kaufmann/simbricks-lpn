@@ -37,15 +37,13 @@ for h in ['qk', 'qt', 'gk', 'gt']:
 
         if h == 'gk':
             node_config.app.pci_device = '0000:00:00.0'
-            node_config.cores = 4
             host = sim.Gem5Host(node_config)
             host.cpu_type = 'X86KvmCPU'
         elif h == 'gt':
-            e.checkpoint = True
+            e.checkpoint = False
             node_config.app.pci_device = '0000:00:00.0'
             host = sim.Gem5Host(node_config)
         elif h == 'qk':
-            node_config.cores = 4
             host = sim.QemuHost(node_config)
         elif h == 'qt':
             host = sim.QemuHost(node_config)
