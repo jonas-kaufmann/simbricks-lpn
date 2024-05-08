@@ -27,17 +27,16 @@ gem5
 
 `gem5 <https://www.gem5.org/>`_ is a modular computer architecture simulator
 that can be configured to simulate a very broad range of different systems. For
-now, we maintain our own fork of gem5 `on GitHub
-<https://github.com/simbricks/gem5>`_, which contains our SimBricks adapters, a
-Python configuration script for full system x86 simulations with SimBricks
-adapters, and a few other extensions, such as MSI-X support. In the long term,
-we hope to upstream these changes.
+now, we maintain our :gem5-fork:`own fork of gem5 <>` on GitHub, which contains
+our SimBricks adapters, a Python configuration script for full system x86
+simulations with SimBricks adapters, and a few other extensions, such as MSI-X
+support. In the long term, we hope to upstream these changes.
 
 SimBricks Adapters
 ==================
 We have added SimBricks adapters for PCI and Ethernet. The source for these
-adapters and additional helper code are in `src/simbricks
-<https://github.com/simbricks/gem5/tree/main/src/simbricks>`_ in the gem5 repo.
+adapters and additional helper code are in
+:gem5-fork:`src/simbricks </tree/main/src/simbricks>` in the gem5 repo.
 
 Common Functionality
 --------------------
@@ -119,4 +118,5 @@ Usage Notes
     will fail with an error and not silently fall back to something slower.
 
   * gem5-kvm configurations require ``/proc/sys/kernel/perf_event_paranoid`` to
-    be set to ``-1`` on the host system.
+    be set to ``1`` or lower on the host system. :ref:`sec-gem5-perf` describes
+    how to do so.

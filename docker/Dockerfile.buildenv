@@ -1,3 +1,5 @@
+ARG REGISTRY=
+ARG TAG=:latest
 FROM ubuntu:jammy
 RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive \
@@ -8,6 +10,7 @@ RUN apt-get update \
 	bc \
 	bison \
 	build-essential \
+	cmake \
 	doxygen \
 	g++ \
 	flex \

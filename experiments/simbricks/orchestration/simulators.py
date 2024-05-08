@@ -26,6 +26,8 @@ from __future__ import annotations
 import math
 import typing as tp
 
+from simbricks.orchestration import e2e_components as e2e
+from simbricks.orchestration.e2e_topologies import E2ETopology
 from simbricks.orchestration.experiment.experiment_environment import ExpEnv
 from simbricks.orchestration.nodeconfig import NodeConfig
 
@@ -138,7 +140,7 @@ class NICSim(PCIDevSim):
     def set_network(self, net: NetSim) -> None:
         """Connect this NIC to a network simulator."""
         self.network = net
-        net.nics.append(self)
+        net.connect_nic(self)
 
     def basic_args(self, env: ExpEnv, extra: tp.Optional[str] = None) -> str:
         cmd = (
@@ -188,43 +190,53 @@ class NetSim(Simulator):
         self.eth_latency = 500
         """Ethernet latency in nanoseconds from this network to connected
         components."""
-        self.nics: list[NICSim] = []
-        self.hosts_direct: list[HostSim] = []
-        self.net_listen: list[NetSim] = []
-        self.net_connect: list[NetSim] = []
+        self.nics: tp.List[NICSim] = []
+        self.hosts_direct: tp.List[HostSim] = []
+        self.net_listen: tp.List[tp.Tuple[NetSim, str]] = []
+        self.net_connect: tp.List[tp.Tuple[NetSim, str]] = []
+        self.wait = False
 
     def full_name(self) -> str:
         return 'net.' + self.name
 
-    def connect_network(self, net: NetSim) -> None:
+    def connect_nic(self, nic: NICSim) -> None:
+        self.nics.append(nic)
+
+    def connect_network(self, net: NetSim, suffix='') -> None:
         """Connect this network to the listening peer `net`"""
-        net.net_listen.append(self)
-        self.net_connect.append(net)
+        net.net_listen.append((self, suffix))
+        self.net_connect.append((net, suffix))
 
     def connect_sockets(self, env: ExpEnv) -> tp.List[tp.Tuple[Simulator, str]]:
         sockets = []
         for n in self.nics:
             sockets.append((n, env.nic_eth_path(n)))
-        for n in self.net_connect:
-            sockets.append((n, env.n2n_eth_path(n, self)))
+        for (n, suffix) in self.net_connect:
+            sockets.append((n, env.n2n_eth_path(n, self, suffix)))
         for h in self.hosts_direct:
             sockets.append((h, env.net2host_eth_path(self, h)))
         return sockets
 
     def listen_sockets(self, env: ExpEnv) -> tp.List[tp.Tuple[NetSim, str]]:
         listens = []
-        for net in self.net_listen:
-            listens.append((net, env.n2n_eth_path(self, net)))
+        for (net, suffix) in self.net_listen:
+            listens.append((net, env.n2n_eth_path(self, net, suffix)))
         return listens
 
     def dependencies(self) -> tp.List[Simulator]:
-        return self.nics + self.net_connect + self.hosts_direct
+        return self.nics + self.hosts_direct + [n for n, _ in self.net_connect]
 
     def sockets_cleanup(self, env: ExpEnv) -> tp.List[str]:
         return [s for (_, s) in self.listen_sockets(env)]
 
     def sockets_wait(self, env: ExpEnv) -> tp.List[str]:
         return [s for (_, s) in self.listen_sockets(env)]
+
+    def wait_terminate(self) -> bool:
+        return self.wait
+
+    def init_network(self) -> None:
+        pass
 
 
 # FIXME: Class hierarchy is broken here as an ugly hack
@@ -465,9 +477,9 @@ class Gem5Host(HostSim):
         cmd = f'{env.gem5_path(self.variant)} --outdir={env.gem5_outdir(self)} '
         cmd += ' '.join(self.extra_main_args)
         cmd += (
-            f' {env.gem5_py_path} --caches --l2cache --l3cache '
-            '--l1d_size=32kB --l1i_size=32kB --l2_size=2MB --l3_size=32MB '
-            '--l1d_assoc=8 --l1i_assoc=8 --l2_assoc=4 --l3_assoc=16 '
+            f' {env.gem5_py_path} --caches --l2cache '
+            '--l1d_size=32kB --l1i_size=32kB --l2_size=32MB '
+            '--l1d_assoc=8 --l1i_assoc=8 --l2_assoc=16 '
             f'--cacheline_size=64 --cpu-clock={self.cpu_freq}'
             f' --sys-clock={self.sys_clock} '
             f'--checkpoint-dir={env.gem5_cpdir(self)} '
@@ -476,7 +488,7 @@ class Gem5Host(HostSim):
             f'--disk-image={env.cfgtar_path(self)} '
             f'--cpu-type={cpu_type} --mem-size={self.node_config.memory}MB '
             f'--num-cpus={self.node_config.cores} '
-            '--ddio-enabled --ddio-way-part=8 --mem-type=DDR4_2400_16x4 '
+            '--mem-type=DDR4_2400_16x4 '
         )
 
         if self.node_config.kcmd_append:
@@ -888,19 +900,130 @@ class TofinoNet(NetSim):
         return cmd
 
 
+class NS3E2ENet(NetSim):
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.first_run = True
+        self.e2e_components: tp.List[tp.Union[e2e.E2ETopologyNode,
+                                              e2e.E2ETopologyChannel]] = []
+        self.e2e_topologies: tp.List[E2ETopology] = []
+        self.e2e_global = e2e.E2EGlobalConfig()
+        self.e2e_ns3_logging = e2e.E2ENs3Logging()
+        self.use_file = True
+
+    def add_component(
+        self,
+        component: tp.Union[e2e.E2ETopologyNode,
+                            e2e.E2ETopologyChannel,
+                            E2ETopology]
+    ):
+        if isinstance(component, E2ETopology):
+            self.e2e_topologies.append(component)
+        else:
+            self.e2e_components.append(component)
+            if isinstance(component, e2e.E2ETopologyNode):
+                component.network = self
+
+    def resolve_socket_paths(
+        self,
+        env: ExpEnv,
+        e2e_sim: tp.Union[e2e.E2ENetworkSimbricks, e2e.E2ESimbricksHost],
+        listen: bool = False
+    ) -> None:
+        if e2e_sim.simbricks_component is None:
+            raise RuntimeError(
+                'E2E Simbricks adapter does not contain a simulator'
+            )
+        if e2e_sim.adapter_type == e2e.SimbricksAdapterType.NIC:
+            e2e_sim.unix_socket = env.nic_eth_path(e2e_sim.simbricks_component)
+        elif e2e_sim.adapter_type == e2e.SimbricksAdapterType.NETWORK:
+            if not isinstance(e2e_sim, e2e.E2ENetworkSimbricks):
+                raise RuntimeError(
+                    f'Expected {e2e_sim.id} to be of type E2ENetworkSimbricks'
+                )
+            p_suf = ''
+            if e2e_sim.peer:
+                p_suf = min(e2e_sim.name, e2e_sim.peer.name)
+            if listen:
+                e2e_sim.unix_socket = env.n2n_eth_path(
+                    self, e2e_sim.simbricks_component, p_suf
+                )
+            else:
+                e2e_sim.unix_socket = env.n2n_eth_path(
+                    e2e_sim.simbricks_component, self, p_suf
+                )
+        elif e2e_sim.adapter_type == e2e.SimbricksAdapterType.HOST:
+            e2e_sim.unix_socket = env.net2host_eth_path(
+                self, e2e_sim.simbricks_component
+            )
+
+    def init_network(self) -> None:
+        # add all components from topologies to the network
+        for topo in self.e2e_topologies:
+            topo.add_to_network(self)
+
+        for component in self.e2e_components:
+            component.resolve_paths()
+
+            # add all connected networks
+            for c in component.components:
+                if isinstance(c, e2e.E2ENetworkSimbricks) and not c.listen:
+                    p_suf = ''
+                    if c.peer:
+                        p_suf = min(c.name, c.peer.name)
+                    self.connect_network(c.simbricks_component, p_suf)
+                elif isinstance(c, e2e.E2ESimbricksHost):
+                    c.simbricks_component.set_network(self)
+
+    def run_cmd(self, env):
+        # resolve all socket paths
+        for component in self.e2e_components:
+            for c in component.components:
+                if isinstance(c, e2e.E2ESimbricksHost):
+                    self.resolve_socket_paths(env, c)
+                elif isinstance(c, e2e.E2ENetworkSimbricks):
+                    self.resolve_socket_paths(env, c, c.listen)
+
+        params: tp.List[str] = []
+        params.append(self.e2e_global.ns3_config())
+        params.append(self.e2e_ns3_logging.ns3_config())
+        for component in self.e2e_components:
+            params.append(component.ns3_config())
+
+        params_str = f'{" ".join(params)} {self.opt}'
+
+        if self.use_file:
+            file_path = env.ns3_e2e_params_file(self)
+            with open(file_path, 'w', encoding='utf-8') as f:
+                f.write(params_str)
+            cmd = (
+                f'{env.repodir}/sims/external/ns-3'
+                f'/simbricks-run.sh e2e-cc-example --ConfigFile={file_path}'
+            )
+        else:
+            cmd = (
+                f'{env.repodir}/sims/external/ns-3'
+                f'/simbricks-run.sh e2e-cc-example {params_str}'
+            )
+        print(cmd)
+
+        return cmd
+
+
 class NS3DumbbellNet(NetSim):
 
     def run_cmd(self, env: ExpEnv) -> str:
         ports = ''
         for (n, s) in self.connect_sockets(env):
             if 'server' in n.name:
-                ports += f'--CosimPortLeft={s} '
+                ports += f'--SimbricksPortLeft={s} '
             else:
-                ports += f'--CosimPortRight={s} '
+                ports += f'--SimbricksPortRight={s} '
 
         cmd = (
             f'{env.repodir}/sims/external/ns-3'
-            f'/cosim-run.sh cosim cosim-dumbbell-example {ports} {self.opt}'
+            f'/simbricks-run.sh simbricks-dumbbell-example {ports} {self.opt}'
         )
         print(cmd)
 
@@ -912,11 +1035,11 @@ class NS3BridgeNet(NetSim):
     def run_cmd(self, env: ExpEnv) -> str:
         ports = ''
         for (_, n) in self.connect_sockets(env):
-            ports += '--CosimPort=' + n + ' '
+            ports += '--SimbricksPort=' + n + ' '
 
         cmd = (
             f'{env.repodir}/sims/external/ns-3'
-            f'/cosim-run.sh cosim cosim-bridge-example {ports} {self.opt}'
+            f'/simbricks-run.sh simbricks-bridge-example {ports} {self.opt}'
         )
         print(cmd)
 
@@ -938,7 +1061,7 @@ class NS3SequencerNet(NetSim):
                 raise KeyError('Wrong NIC type')
         cmd = (
             f'{env.repodir}/sims/external/ns-3'
-            f'/cosim-run.sh sequencer sequencer-single-switch-example'
+            f'/simbricks-run.sh sequencer-single-switch-example'
             f' {ports} {self.opt}'
         )
         return cmd

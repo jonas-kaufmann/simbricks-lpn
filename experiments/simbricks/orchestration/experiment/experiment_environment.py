@@ -67,11 +67,25 @@ class ExpEnv(object):
     def hdcopy_path(self, sim: 'simulators.Simulator') -> str:
         return f'{self.workdir}/hdcopy.{sim.name}'
 
-    def hd_path(self, hd_name: str) -> str:
-        return f'{self.repodir}/images/output-{hd_name}/{hd_name}'
+    @staticmethod
+    def is_absolute_exists(path: str) -> bool:
+        return os.path.isabs(path) and os.path.isfile(path)
 
-    def hd_raw_path(self, hd_name: str) -> str:
-        return f'{self.repodir}/images/output-{hd_name}/{hd_name}.raw'
+    def hd_path(self, hd_name_or_path: str) -> str:
+        if ExpEnv.is_absolute_exists(hd_name_or_path):
+            return hd_name_or_path
+        return (
+            f'{self.repodir}/images/output-{hd_name_or_path}/'
+            f'{hd_name_or_path}'
+        )
+
+    def hd_raw_path(self, hd_name_or_path: str) -> str:
+        if ExpEnv.is_absolute_exists(hd_name_or_path):
+            return f'{hd_name_or_path}.raw'
+        return (
+            f'{self.repodir}/images/output-{hd_name_or_path}/'
+            f'{hd_name_or_path}.raw'
+        )
 
     def cfgtar_path(self, sim: 'simulators.Simulator') -> str:
         return f'{self.workdir}/cfg.{sim.name}.tar'
@@ -89,9 +103,12 @@ class ExpEnv(object):
         return f'{self.shm_base}/dev.shm.{sim.name}'
 
     def n2n_eth_path(
-        self, sim_l: 'simulators.Simulator', sim_c: 'simulators.Simulator'
+        self,
+        sim_l: 'simulators.Simulator',
+        sim_c: 'simulators.Simulator',
+        suffix=''
     ) -> str:
-        return f'{self.workdir}/n2n.eth.{sim_l.name}.{sim_c.name}'
+        return f'{self.workdir}/n2n.eth.{sim_l.name}.{sim_c.name}.{suffix}'
 
     def net2host_eth_path(self, sim_n, sim_h) -> str:
         return f'{self.workdir}/n2h.eth.{sim_n.name}.{sim_h.name}'
@@ -112,3 +129,6 @@ class ExpEnv(object):
 
     def simics_cpfile(self, sim: 'simulators.Simulator') -> str:
         return f'{self.cpdir}/simics-cp.{sim.name}'
+
+    def ns3_e2e_params_file(self, sim: 'simulators.NS3E2ENet') -> str:
+        return f'{self.workdir}/ns3_e2e_params.{sim.name}'

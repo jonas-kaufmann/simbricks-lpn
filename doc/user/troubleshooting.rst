@@ -36,11 +36,10 @@ Getting Help
 ******************************
 
 We love to hear from you. If you have questions, want to discuss an idea, or
-encountered issues while using SimBricks, we are available on `Slack
-<https://join.slack.com/t/simbricks/shared_invite/zt-16y96155y-xspnVcm18EUkbUHDcSVonA>`_
+encountered issues while using SimBricks, we are available on :slack:`Slack <>`
 for quick answers and interactive discussions. If you find bugs or want to
-request a feature, feel free to open an `issue on GitHub
-<https://github.com/simbricks/simbricks/issues>`_.
+request a feature, feel free to open an
+:simbricks-repo:`Issue on GitHub </issues>`.
 
 
 .. _sec-convert-qcow-images-to-raw:
@@ -68,6 +67,32 @@ qcow images by running the following (again, requires QEMU to be built first):
 
   $ make build-images-min
 
+.. _sec-gem5-perf:
+
+*********************************
+gem5 Panic PerfKvmCounter::attach
+*********************************
+
+gem5 needs access to the syscall ``perf_event_open``. To allow access,
+``/proc/sys/kernel/perf_event_paranoid`` has to be set to 1 or lower on the host
+system. You can check the current value with
+
+.. code-block:: bash
+
+  $ cat /proc/sys/kernel/perf_event_paranoid
+
+To change the setting, use this command:
+
+.. code-block:: bash
+
+  $ sudo sysctl -w kernel.perf_event_paranoid=1
+
+If you are using SimBricks from within a Docker container, you also need to
+start the container with the parameter ``--privileged`` for the
+``perf_event_open`` syscall to be accessible. Our VS Code dev container is
+configured to already do so, just start it as usual from within VS Code and you
+are good to go. Otherwise, add the parameter to your ``docker run`` command.
+
 ************************************
 Is My Simulation Stuck or Just Slow?
 ************************************
@@ -76,15 +101,15 @@ It is possible to check the current timestamp of individual component
 simulators. If the timestamp of a simulator which is synchronizing with at least
 one other simulator isn't advancing, the whole simulation is stuck. Many of our
 component simulators print their timestamp when you send them a USR1 signal, for
-example, by running ``kill -s USR1 <insert_pid_of_simulator>``. By doing this
-multiple times, you can check whether the timestamp advances.
+example, by running
 
-If you invoked the orchestration framework in verbose mode (see
-:ref:`sec-command-line`), the current timestamp is printed directly in the
-terminal. If not then you have to stop the experiment via Ctrl+C to produce
-the output JSON file. All the simulators' output is logged
-there.
+.. code-block:: bash
 
-************************************
-Understanding Simulation Performance
-************************************
+  $ kill -s USR1 <insert_pid_of_simulator>
+
+By doing this multiple times, you can check whether the timestamp advances. If
+you invoked the
+:simbricks-repo:`orchestration framework </blob/main/experiments/run.py>`
+with ``--verbose``, the current timestamp is printed directly in the terminal.
+If not then you have to stop the experiment via Ctrl+C to produce the output
+JSON file. All the simulators' output is logged there.

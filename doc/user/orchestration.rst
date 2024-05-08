@@ -49,7 +49,8 @@ connected. To define one, instantiate the class
 :class:`~simbricks.orchestration.experiments.Experiment` in your own Python
 module, which has member functions to further define the component simulators to
 run. SimBricks comes with many pre-defined experiments, which can serve as
-starting guides and are located in the repository under ``experiments/pyexps``.
+starting guides and are located in the repository under
+:simbricks-repo:`experiments/pyexps </blob/main/experiments/pyexps>`.
 
 .. autoclass:: simbricks.orchestration.experiments.Experiment
   :members: add_host, add_pcidev, add_nic, add_network, checkpoint
@@ -62,27 +63,25 @@ insights when including a random or non-deterministic component. We call each
 execution a *run* of the experiment. Each run produces its own output JSON file.
 The file name includes the number of the run.
 
-The number of runs can be specified when invoking the orchestration framework,
-see :ref:`sec-command-line`. When using simulator checkpointing, we use one run
-to boot the simulator and take the checkpoint, and a second one to carry out the
-actual experiment. This is the reason for two output JSON files being produced
-in this case. For more information, see :ref:`sec-checkpointing`.
+The number of runs can be specified when invoking
+:simbricks-repo:`experiments/run.py </blob/main/experiments/run.py>`. When using
+simulator checkpointing, we use one run to boot the simulator and take the
+checkpoint, and a second one to carry out the actual experiment. This is the
+reason for two output JSON files being produced in this case. For more
+information, see :ref:`sec-checkpointing`.
 
 Component Simulators
 ====================
 
-SimBricks comes with multiple, ready-to-use component simulators for your
-experiments in :mod:`simbricks.orchestration.simulators`. These include host,
-NIC, network, and PCIe device simulators. On the orchestration side, each
-simulator is implemented in a class deriving from
+SimBricks defines multiple, ready-to-use component simulators in the module
+:mod-orchestration:`simulators.py`. These include host, NIC, network, and PCIe
+device simulators. Each simulator is defined by a class deriving from
 :class:`~simbricks.orchestration.simulators.Simulator`, which provides the
 necessary commands for their execution. We also offer more specialized base
 classes for the different component types, which implement common member
 functions, for example, to connect NICs or network component simulators to a
 host simulator.
 
-.. automodule:: simbricks.orchestration.simulators
-  
 .. autoclass:: simbricks.orchestration.simulators.Simulator
   :members: prep_cmds, run_cmd, resreq_cores, resreq_mem
 
@@ -113,8 +112,7 @@ To configure the workload and the software environment of nodes, use the classes
 :class:`~simbricks.orchestration.nodeconfig.AppConfig`. The former is passed to
 every host simulator and defines, for example, the networking configuration like
 IP address and subnet mask, how much system memory the node has, but also which
-disk image to run. You can read more about the latter under
-:ref:`sec-howto-custom_image`.
+disk image to run. You can read more about the latter under :ref:`sec-images`.
 
 The :class:`~simbricks.orchestration.nodeconfig.NodeConfig` contains an
 attribute for an instance of
@@ -125,8 +123,6 @@ specify additional files to be copied into the host. These are specified as key
 value pairs, where the key represents the path/filename inside the simulated
 guest system and the value is an IO handle of the file to be copied over.
 
-.. automodule:: simbricks.orchestration.nodeconfig
-
 .. autoclass:: simbricks.orchestration.nodeconfig.NodeConfig
   :members: ip, prefix, mtu, cores, memory, disk_image, app, run_cmds,
     cleanup_cmds, config_files 
@@ -135,32 +131,31 @@ guest system and the value is an IO handle of the file to be copied over.
   :members: run_cmds, config_files
 
 *******************************
-Synchronized vs. Unsynchronized
+Unsynchronized vs. Synchronized
 *******************************
 
-For most component simulators in your experiment, you can decide whether to run
-them synchronized or unsynchronized by setting
-:attr:`~simbricks.orchestration.simulators.PCIDevSim.sync_mode` or
-:attr:`~simbricks.orchestration.simulators.QemuHost.sync`. By default, all
-simulators run unsynchronized to simulate as fast as possible. When you are
-conducting measurements, however, you need to run synchronized, or you won't get
-meaningful performance numbers.
+SimBricks offers two modes of operation, unsynchronized and synchronized, which
+are defined on a per component basis. The default is the unsynchronized mode
+that is meant purely for functional testing. Unsynchronized components advance
+virtual time as quickly as they possibly can, which means that measurements
+taken on them are meaningless and cross-component measurements inaccurate.
 
-Running synchronized means that a simulator waits to process incoming messages
-from connected simulators at the correct timestamps. For technical details, see
-:ref:`sec-synchronization`. In contrast, unsynchronized lets a simulator advance
-its virtual time as fast as it can. It still handles and exchanges messages with
-connected simulators, but it won't wait for incoming messages and instead
-advances its virtual time when there's nothing available to process. 
+The synchronized mode, in contrast, is meant for accurate measurements and has
+to be enabled per component, for example, by setting
+:attr:`simbricks.orchestration.simulators.PCIDevSim.sync_mode` or
+:attr:`simbricks.orchestration.simulators.HostSim.sync_mode`. Running
+synchronized means that a simulator waits to process incoming messages from
+connected simulators at the correct timestamps. For technical details, see
+:ref:`sec-synchronization`.
 
 ***************************************
 Link Latency and Synchronization Period
 ***************************************
 
-Most of the pre-defined simulators in :mod:`simbricks.orchestration.simulators`
-provide an attribute for tuning link latencies and the synchronization period.
-Both are configured in nanoseconds and apply to the message flow from the
-configured simulator to connected ones.
+Most of the pre-defined simulators in :mod-orchestration:`simulators.py` provide
+an attribute for tuning link latencies and the synchronization period. Both are
+configured in nanoseconds and apply to the message flow from the configured
+simulator to connected ones.
 
 Some simulators have interfaces for different link types, for example, NIC
 simulators based on :class:`~simbricks.orchestration.simulators.NICSim` have a
@@ -177,96 +172,28 @@ also possible to increase simulation performance by trading-off accuracy using a
 higher setting. For more information, refer to the section on
 :ref:`sec-synchronization` in the :ref:`page-architectural-overview`.
 
-
-.. _sec-command-line:
-
-******************************
-Running Experiments
-******************************
-
-To run experiments using our orchestration framework, use the
-``experiments/run.py`` script. For your convenience, you can also use
-``simbricks-run`` in the Docker images from anywhere to run experiments. In
-practice, running experiments will look similar to this:
-
-.. code-block:: bash
-
-  $ python run.py --verbose --force pyexps/simple_ping.py
-  # only available inside docker images
-  $ simbricks-run --verbose --force pyexps/simple_ping.py
-
-Here are all the command line arguments for the ``experiments/run.py`` script:
-
-.. code-block:: text
-
-  usage: run.py [-h] [--list] [--filter PATTERN [PATTERN ...]] [--pickled] [--runs N]
-                [--firstrun N] [--force] [--verbose] [--pcap] [--repo DIR] [--workdir DIR]
-                [--outdir DIR] [--cpdir DIR] [--hosts JSON_FILE] [--shmdir DIR]
-                [--parallel] [--cores N] [--mem N] [--slurm] [--slurmdir DIR] [--dist]
-                [--auto-dist] [--proxy-type TYPE]
-                EXP [EXP ...]
-
-  positional arguments:
-    EXP                   Python modules to load the experiments from
-
-  options:
-    -h, --help            show this help message and exit
-    --list                List available experiment names
-    --filter PATTERN [PATTERN ...]
-                          Only run experiments matching the given Unix shell style patterns
-    --pickled             Interpret experiment modules as pickled runs instead of .py files
-    --runs N              Number of repetition of each experiment
-    --firstrun N          ID for first run
-    --force               Run experiments even if output already exists (overwrites output)
-    --verbose             Verbose output, for example, print component simulators\' output
-    --pcap                Dump pcap file (if supported by component simulator)
-
-  Environment:
-    --repo DIR            SimBricks repository directory
-    --workdir DIR         Work directory base
-    --outdir DIR          Output directory base
-    --cpdir DIR           Checkpoint directory base
-    --hosts JSON_FILE     List of hosts to use (json)
-    --shmdir DIR          Shared memory directory base (workdir if not set)
-
-  Parallel Runtime:
-    --parallel            Use parallel instead of sequential runtime
-    --cores N             Number of cores to use for parallel runs
-    --mem N               Memory limit for parallel runs (in MB)
-
-  Slurm Runtime:
-    --slurm               Use slurm instead of sequential runtime
-    --slurmdir DIR        Slurm communication directory
-
-  Distributed Runtime:
-    --dist                Use sequential distributed runtime instead of local
-    --auto-dist           Automatically distribute non-distributed experiments
-    --proxy-type TYPE     Proxy type to use (sockets,rdma) for auto distribution
+.. _sec-images:
 
 ******************************
 Images
 ******************************
 
-All host simulators require a disk image. We already provide a base image with
-Ubuntu. If you just want to copy in additional files, e.g., drivers and
-executables for your workload, you don't need to build your own image. You can
-use the method
-:meth:`~simbricks.orchestration.nodeconfig.NodeConfig.config_files` of
-:class:`~simbricks.orchestration.nodeconfig.NodeConfig` and
-:class:`~simbricks.orchestration.nodeconfig.AppConfig` to mount additional files
-under ``/tmp/guest`` inside the simulated OS.
+All our host simulators boot up a proper Operating System and therefore require
+a disk image. We already provide a minimal base image using Ubuntu and some
+experiment-specific derivatives with additional packages installed. If you just
+want to copy in additional files for your experiment, such as drivers and
+executables, you don't need to build your own image. You can just override the
+method :meth:`~simbricks.orchestration.nodeconfig.NodeConfig.config_files` of
+:class:`~simbricks.orchestration.nodeconfig.AppConfig` or
+:class:`~simbricks.orchestration.nodeconfig.NodeConfig` to mount additional
+files under ``/tmp/guest`` inside the simulated OS.
 
-For more than that, you need to build your own images. You can find the commands
-to do so in ``images/rules.mk``. When building an image, it is started with Qemu
-in a VM with active internet access. The image-specific script located in
-``images/scripts`` is then executed on the guest system to modify the image,
-e.g., changing config files, installing packages, or building required projects
-from source. In order to use your image in experiments, set the attribute
-:attr:`~simbricks.orchestration.nodeconfig.NodeConfig.disk_image` on
-:class:`~simbricks.orchestration.nodeconfig.NodeConfig`. This requires that your
-image is stored as ``images/out-<image_name>/<image_name>``. If your host
-simulator requires a raw image, execute ``make
-images/out-<image_name>/<image_name>.raw`` to convert your image.
+For anything more than that, for example to install additional packages, you
+need to build your own image. You can find information on how to do so under
+:ref:`sec-howto-custom_image`. The specific image that you want to use for a
+host in your experiment is specified in the
+:class:`~simbricks.orchestration.nodeconfig.NodeConfig` class via the attribute
+:attr:`~simbricks.orchestration.nodeconfig.NodeConfig.disk_image`.
 
 *************************************
 Checkpoints
@@ -285,19 +212,15 @@ workload executed. Checkpointing can be enabled by setting the attribute
 
 When running an experiment multiple times, e.g. because you are tweaking the
 workload, the checkpoint doesn't have to be recreated all the time. When
-invoking the orchestration framework without the ``--force`` flag (see
-:ref:`sec-command-line`), it won't re-execute experiments and runs, for which an
-output JSON file already exists. So, if you delete only the output file of the
+invoking the
+:simbricks-repo:`orchestration framework </blob/main/experiments/run.py>`
+without the ``--force`` flag, it won't re-execute experiments and runs for which
+an output JSON file already exists. So if you delete only the output file of the
 second run, you can save the time for creating the checkpoint.
 
 ******************************
 Distributed Simulations
 ******************************
 
-For the moment, refer to our `GitHub Q&A on this topic
-<https://github.com/simbricks/simbricks/discussions/73#discussioncomment-6682260>`_.
-
-
-******************************
-Slurm
-******************************
+For the moment, refer to our
+:simbricks-repo:`GitHub Q&A on this topic </discussions/73#discussioncomment-6682260>`.
