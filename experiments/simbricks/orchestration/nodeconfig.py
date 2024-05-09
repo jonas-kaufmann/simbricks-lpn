@@ -901,7 +901,7 @@ class LinuxVTANode(NodeConfig):
     def __init__(self):
         super().__init__()
         self.disk_image = 'vta'
-        self.memory = 4 * 1024
+        self.memory = 3 * 1024
         self.kcmd_append = ' memmap=512M!1G'
 
     def prepare_pre_cp(self):
