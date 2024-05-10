@@ -89,3 +89,21 @@ class JpegDecAXILManager : public AXILManagerT {
   void read_done(simbricks::AXILOperationR &axi_op) final;
   void write_done(simbricks::AXILOperationW &axi_op) final;
 };
+
+extern "C" void sigint_handler(int dummy);
+extern "C" void sigusr1_handler(int dummy);
+
+bool PciIfInit(const char *shm_path,
+               struct SimbricksBaseIfParams &baseif_params);
+
+volatile union SimbricksProtoPcieD2H *d2h_alloc(uint64_t cur_ts);
+bool h2d_read(volatile struct SimbricksProtoPcieH2DRead &read, uint64_t cur_ts);
+bool h2d_write(volatile struct SimbricksProtoPcieH2DWrite &write,
+               uint64_t cur_ts, bool posted);
+bool h2d_readcomp(volatile struct SimbricksProtoPcieH2DReadcomp &readcomp,
+                  uint64_t cur_ts);
+bool h2d_writecomp(volatile struct SimbricksProtoPcieH2DWritecomp &writecomp,
+                   uint64_t cur_ts);
+bool poll_h2d(uint64_t cur_ts);
+
+void apply_ctrl_changes();

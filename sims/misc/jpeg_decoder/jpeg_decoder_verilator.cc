@@ -67,6 +67,100 @@ uint64_t cur_ts = 0;
 // underlying memory that's being accessed.
 VerilatorRegs verilator_regs{};
 
+void JpegDecAXISubordinateRead::do_read(const simbricks::AXIOperation &axi_op) {
+#if JPGD_DEBUG
+  std::cout << "JpegDecoderMemReader::doRead() ts=" << cur_ts
+            << " id=" << axi_op.id << " addr=" << axi_op.addr
+            << " len=" << axi_op.len << "\n";
+#endif
+
+  volatile union SimbricksProtoPcieD2H *msg = d2h_alloc(cur_ts);
+  if (!msg) {
+    throw "JpegDecAXISubordinateRead::doRead() dma read alloc failed";
+  }
+
+  unsigned int max_size = SimbricksPcieIfH2DOutMsgLen(&pcieif) -
+                          sizeof(SimbricksProtoPcieH2DReadcomp);
+  if (axi_op.len > max_size) {
+    std::cerr << "error: read data of length " << axi_op.len
+              << " doesn't fit into a SimBricks message\n";
+    std::terminate();
+  }
+
+  volatile struct SimbricksProtoPcieD2HRead *read = &msg->read;
+  read->req_id = axi_op.id;
+  read->offset = axi_op.addr;
+  read->len = axi_op.len;
+  SimbricksPcieIfD2HOutSend(&pcieif, msg, SIMBRICKS_PROTO_PCIE_D2H_MSG_READ);
+}
+
+void JpegDecAXISubordinateWrite::do_write(
+    const simbricks::AXIOperation &axi_op) {
+#if JPGD_DEBUG
+  std::cout << "JpegDecoderMemWriter::doWrite() ts=" << cur_ts
+            << " id=" << axi_op.id << " addr=" << axi_op.addr
+            << " len=" << axi_op.len << "\n";
+#endif
+
+  volatile union SimbricksProtoPcieD2H *msg = d2h_alloc(cur_ts);
+  if (!msg) {
+    throw "JpegDecoderMemWriter::doWrite() dma read alloc failed";
+  }
+
+  volatile struct SimbricksProtoPcieD2HWrite *write = &msg->write;
+  unsigned int max_size = SimbricksPcieIfH2DOutMsgLen(&pcieif) - sizeof(*write);
+  if (axi_op.len > max_size) {
+    std::cerr << "error: write data of length " << axi_op.len
+              << " doesn't fit into a SimBricks message\n";
+    std::terminate();
+  }
+
+  write->req_id = axi_op.id;
+  write->offset = axi_op.addr;
+  write->len = axi_op.len;
+  std::memcpy(const_cast<uint8_t *>(write->data), axi_op.buf.get(), axi_op.len);
+  SimbricksPcieIfD2HOutSend(&pcieif, msg, SIMBRICKS_PROTO_PCIE_D2H_MSG_WRITE);
+}
+
+void JpegDecAXILManager::read_done(simbricks::AXILOperationR &axi_op) {
+#if JPGD_DEBUG
+  std::cout << "JpegDecAXILManager::read_done() ts=" << cur_ts
+            << " id=" << axi_op.req_id << " addr=" << axi_op.addr << "\n";
+#endif
+
+  volatile union SimbricksProtoPcieD2H *msg = d2h_alloc(cur_ts);
+  if (!msg) {
+    throw "JpegDecAXILManager::read_done() completion alloc failed";
+  }
+
+  volatile struct SimbricksProtoPcieD2HReadcomp *readcomp = &msg->readcomp;
+  std::memcpy(const_cast<uint8_t *>(readcomp->data), &axi_op.data, 4);
+  readcomp->req_id = axi_op.req_id;
+  SimbricksPcieIfD2HOutSend(&pcieif, msg,
+                            SIMBRICKS_PROTO_PCIE_D2H_MSG_READCOMP);
+}
+
+void JpegDecAXILManager::write_done(simbricks::AXILOperationW &axi_op) {
+#if JPGD_DEBUG
+  std::cout << "JpegDecAXILManager::write_done ts=" << cur_ts
+            << " id=" << axi_op.req_id << " addr=" << axi_op.addr << "\n";
+#endif
+
+  if (axi_op.posted) {
+    return;
+  }
+
+  volatile union SimbricksProtoPcieD2H *msg = d2h_alloc(cur_ts);
+  if (!msg) {
+    throw "JpegDecAXILManager::write_done completion alloc failed";
+  }
+
+  volatile struct SimbricksProtoPcieD2HWritecomp *writecomp = &msg->writecomp;
+  writecomp->req_id = axi_op.req_id;
+  SimbricksPcieIfD2HOutSend(&pcieif, msg,
+                            SIMBRICKS_PROTO_PCIE_D2H_MSG_WRITECOMP);
+}
+
 extern "C" void sigint_handler(int dummy) {
   exiting = 1;
 }
@@ -105,9 +199,6 @@ bool PciIfInit(const char *shm_path,
   static_assert(sizeof(JpegDecoderRegs) <= 4096, "Registers don't fit BAR");
   d_intro.bars[1].len = 4096;
   d_intro.bars[1].flags = 0;
-  static_assert(sizeof(ClockGaterRegs) <= 4096, "Registers don't fit BAR");
-  d_intro.bars[2].len = 4096;
-  d_intro.bars[2].flags = 0;
 
   ests.base_if = &pcieif.base;
   ests.tx_intro = &d_intro;
@@ -137,23 +228,6 @@ bool PciIfInit(const char *shm_path,
   }
 
   return true;
-}
-
-// react to changes of ctrl signals
-void apply_ctrl_changes() {
-  // change to tracing_active
-  if (!tracing_active && verilator_regs.tracing_active) {
-    tracing_active = true;
-    std::ostringstream trace_file{};
-    trace_file << trace_filename << "_" << trace_nr << ".vcd";
-    std::cout << "trace_file: " << trace_file.str() << "\n";
-
-    trace->open(trace_file.str().c_str());
-    ++trace_nr;
-  } else if (tracing_active && !verilator_regs.tracing_active) {
-    tracing_active = false;
-    trace->close();
-  }
 }
 
 bool h2d_read(volatile struct SimbricksProtoPcieH2DRead &read,
@@ -305,6 +379,23 @@ bool poll_h2d(uint64_t cur_ts) {
   return true;
 }
 
+// react to changes of ctrl signals
+void apply_ctrl_changes() {
+  // change to tracing_active
+  if (!tracing_active && verilator_regs.tracing_active) {
+    tracing_active = true;
+    std::ostringstream trace_file{};
+    trace_file << trace_filename << "_" << trace_nr << ".vcd";
+    std::cout << "trace_file: " << trace_file.str() << "\n";
+
+    trace->open(trace_file.str().c_str());
+    ++trace_nr;
+  } else if (tracing_active && !verilator_regs.tracing_active) {
+    tracing_active = false;
+    trace->close();
+  }
+}
+
 int main(int argc, char **argv) {
   if (argc < 3 || argc > 7) {
     std::cerr
@@ -397,98 +488,4 @@ int main(int argc, char **argv) {
   trace = nullptr;
   top = nullptr;
   return 0;
-}
-
-void JpegDecAXISubordinateRead::do_read(const simbricks::AXIOperation &axi_op) {
-#if JPGD_DEBUG
-  std::cout << "JpegDecoderMemReader::doRead() ts=" << cur_ts
-            << " id=" << axi_op.id << " addr=" << axi_op.addr
-            << " len=" << axi_op.len << "\n";
-#endif
-
-  volatile union SimbricksProtoPcieD2H *msg = d2h_alloc(cur_ts);
-  if (!msg) {
-    throw "JpegDecAXISubordinateRead::doRead() dma read alloc failed";
-  }
-
-  unsigned int max_size = SimbricksPcieIfH2DOutMsgLen(&pcieif) -
-                          sizeof(SimbricksProtoPcieH2DReadcomp);
-  if (axi_op.len > max_size) {
-    std::cerr << "error: read data of length " << axi_op.len
-              << " doesn't fit into a SimBricks message\n";
-    std::terminate();
-  }
-
-  volatile struct SimbricksProtoPcieD2HRead *read = &msg->read;
-  read->req_id = axi_op.id;
-  read->offset = axi_op.addr;
-  read->len = axi_op.len;
-  SimbricksPcieIfD2HOutSend(&pcieif, msg, SIMBRICKS_PROTO_PCIE_D2H_MSG_READ);
-}
-
-void JpegDecAXISubordinateWrite::do_write(
-    const simbricks::AXIOperation &axi_op) {
-#if JPGD_DEBUG
-  std::cout << "JpegDecoderMemWriter::doWrite() ts=" << cur_ts
-            << " id=" << axi_op.id << " addr=" << axi_op.addr
-            << " len=" << axi_op.len << "\n";
-#endif
-
-  volatile union SimbricksProtoPcieD2H *msg = d2h_alloc(cur_ts);
-  if (!msg) {
-    throw "JpegDecoderMemWriter::doWrite() dma read alloc failed";
-  }
-
-  volatile struct SimbricksProtoPcieD2HWrite *write = &msg->write;
-  unsigned int max_size = SimbricksPcieIfH2DOutMsgLen(&pcieif) - sizeof(*write);
-  if (axi_op.len > max_size) {
-    std::cerr << "error: write data of length " << axi_op.len
-              << " doesn't fit into a SimBricks message\n";
-    std::terminate();
-  }
-
-  write->req_id = axi_op.id;
-  write->offset = axi_op.addr;
-  write->len = axi_op.len;
-  std::memcpy(const_cast<uint8_t *>(write->data), axi_op.buf.get(), axi_op.len);
-  SimbricksPcieIfD2HOutSend(&pcieif, msg, SIMBRICKS_PROTO_PCIE_D2H_MSG_WRITE);
-}
-
-void JpegDecAXILManager::read_done(simbricks::AXILOperationR &axi_op) {
-#if JPGD_DEBUG
-  std::cout << "JpegDecAXILManager::read_done() ts=" << cur_ts
-            << " id=" << axi_op.req_id << " addr=" << axi_op.addr << "\n";
-#endif
-
-  volatile union SimbricksProtoPcieD2H *msg = d2h_alloc(cur_ts);
-  if (!msg) {
-    throw "JpegDecAXILManager::read_done() completion alloc failed";
-  }
-
-  volatile struct SimbricksProtoPcieD2HReadcomp *readcomp = &msg->readcomp;
-  std::memcpy(const_cast<uint8_t *>(readcomp->data), &axi_op.data, 4);
-  readcomp->req_id = axi_op.req_id;
-  SimbricksPcieIfD2HOutSend(&pcieif, msg,
-                            SIMBRICKS_PROTO_PCIE_D2H_MSG_READCOMP);
-}
-
-void JpegDecAXILManager::write_done(simbricks::AXILOperationW &axi_op) {
-#if JPGD_DEBUG
-  std::cout << "JpegDecAXILManager::write_done ts=" << cur_ts
-            << " id=" << axi_op.req_id << " addr=" << axi_op.addr << "\n";
-#endif
-
-  if (axi_op.posted) {
-    return;
-  }
-
-  volatile union SimbricksProtoPcieD2H *msg = d2h_alloc(cur_ts);
-  if (!msg) {
-    throw "JpegDecAXILManager::write_done completion alloc failed";
-  }
-
-  volatile struct SimbricksProtoPcieD2HWritecomp *writecomp = &msg->writecomp;
-  writecomp->req_id = axi_op.req_id;
-  SimbricksPcieIfD2HOutSend(&pcieif, msg,
-                            SIMBRICKS_PROTO_PCIE_D2H_MSG_WRITECOMP);
 }
