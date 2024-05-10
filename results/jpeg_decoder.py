@@ -31,62 +31,66 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 
-def show_base64_encoded_img(stdout: tp.List[str]) -> bool:
+def show_base64_encoded_imgs(stdout: tp.List[str]) -> None:
     # parse lines from output json and edit them
-    start_idx = None
-    for i in range(len(stdout)):
-        if stdout[i].startswith('image dump begin'):
-            split = stdout[i].split(' ')
-            width = int(split[3])
-            height = int(split[4])
-            # we also want to skip the next two lines
-            start_idx = i + 3
+    line_idx = 0
+    figure = 1
+    while line_idx < len(stdout):
+        start_idx = None
+        for i in range(line_idx, len(stdout)):
+            if stdout[i].startswith('image dump begin'):
+                split = stdout[i].split(' ')
+                width = int(split[3])
+                height = int(split[4])
+                # we also want to skip the next two lines
+                start_idx = i + 3
+                break
+
+        if start_idx is None:
             break
 
-    if start_idx is None:
-        print('Couldn\'t find start string ("image dump begin")')
-        return False
+        end_idx = None
+        for i in range(start_idx, len(stdout)):
+            if stdout[i].startswith('image dump end'):
+                # eliminate the line where the echo command itself is printed
+                end_idx = i - 1
+                break
 
-    end_idx = None
-    for i in range(start_idx, len(stdout)):
-        if stdout[i].startswith('image dump end'):
-            # eliminate the line where the echo command itself is printed
-            end_idx = i - 1
+        if end_idx is None:
+            print('Couldn\'t find end string ("image dump end")')
             break
 
-    if end_idx is None:
-        print('Couldn\'t find end string ("image dump end")')
-        return False
+        eliminate = r'\[ *\d+(\.\d+)?\] random: crng init done'
 
-    eliminate = r'\[ *\d+(\.\d+)?\] random: crng init done'
+        def edit_line(line: str) -> str:
+            line = line.removesuffix('\r')
+            return re.sub(eliminate, '', line)
 
-    def edit_line(line: str) -> str:
-        line = line.removesuffix('\r')
-        return re.sub(eliminate, '', line)
+        edited_lines = list(map(edit_line, stdout[start_idx:end_idx]))
 
-    edited_lines = list(map(edit_line, stdout[start_idx:end_idx]))
+        # convert base64 encoded image to ppm and show it
+        decoded_img = base64.b64decode(''.join(edited_lines), validate=True)
+        img_rgb565 = np.frombuffer(decoded_img, dtype=np.uint16)
+        assert (len(img_rgb565) == width * height)
+        img_rgb888 = np.empty((height, width, 3), dtype=np.uint8)
 
-    # convert base64 encoded image to ppm and show it
-    decoded_img = base64.b64decode(''.join(edited_lines), validate=True)
-    img_rgb565 = np.frombuffer(decoded_img, dtype=np.uint16)
-    assert (len(img_rgb565) == width * height)
-    img_rgb888 = np.empty((height, width, 3), dtype=np.uint8)
+        MASK5 = 0b011111
+        MASK6 = 0b111111
+        for y in range(height):
+            for x in range(width):
+                idx_565 = y * width + x
+                # TODO For the RTL version, red and blue channels are flipped here to
+                # what I'd expect. Not sure why.
+                img_rgb888[y, x, 2] = (img_rgb565[idx_565] & MASK5) << 3
+                img_rgb888[y, x, 1] = ((img_rgb565[idx_565] >> 5) & MASK6) << 2
+                img_rgb888[y, x, 0] = ((img_rgb565[idx_565] >> 5 + 6) & MASK5) << 3
 
-    MASK5 = 0b011111
-    MASK6 = 0b111111
-    for y in range(height):
-        for x in range(width):
-            idx_565 = y * width + x
-            # TODO For the RTL version, red and blue channels are flipped here to
-            # what I'd expect. Not sure why.
-            img_rgb888[y, x, 2] = (img_rgb565[idx_565] & MASK5) << 3
-            img_rgb888[y, x, 1] = ((img_rgb565[idx_565] >> 5) & MASK6) << 2
-            img_rgb888[y, x, 0] = ((img_rgb565[idx_565] >> 5 + 6) & MASK5) << 3
+        plt.figure(figure)
+        figure += 1
+        plt.imshow(img_rgb888)
+        line_idx = end_idx + 1
 
-    plt.imshow(img_rgb888)
     plt.show()
-
-    return True
 
 
 def extract_decoding_durations(stdout: tp.List[str]) -> None:
@@ -128,7 +132,7 @@ def main():
     with open(sys.argv[1], mode='r', encoding='utf-8') as file:
         exp_out = json.load(file)
         stdout: tp.List[str] = exp_out['sims']['host.']['stdout']
-        show_base64_encoded_img(stdout)
+        show_base64_encoded_imgs(stdout)
         extract_decoding_durations(stdout)
 
 
