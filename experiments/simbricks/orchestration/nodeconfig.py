@@ -908,6 +908,19 @@ class LinuxVTANode(NodeConfig):
         return [
             'mount -t proc proc /proc',
             'mount -t sysfs sysfs /sys',
+            'set -x',
+            (
+                'export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:'
+                '/sbin:/bin'
+            ),
+            'export HOME=/root',
+            'cd /root/tvm/',
+            'ip link set lo up',
+            'ip addr add 127.0.0.1/8 dev lo',
+            'echo "127.0.0.1 localhost" >>/etc/hosts',
+            'export PYTHONPATH=/root/tvm/python:${PYTHONPATH}',
+            'export PYTHONPATH=/root/tvm/vta/python:${PYTHONPATH}',
+            'export MXNET_HOME=/mxnet',
         ]
 
     def prepare_post_cp(self):
@@ -924,25 +937,20 @@ class VTATest(AppConfig):
         super().__init__()
         self.pci_device = pci_device
 
-    def run_cmds(self, node):
+    def prepare_pre_cp(self) -> tp.List[str]:
         return [
-            'set -x',
-            (
-                'export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:'
-                '/sbin:/bin'
-            ),
-            'export HOME=/root',
             f'export VTA_DEVICE={self.pci_device}',
-            'cd /root/tvm/',
-            'ip link set lo up',
-            'ip addr add 127.0.0.1/8 dev lo',
-            'echo "127.0.0.1 localhost" >>/etc/hosts',
-            'export PYTHONPATH=/root/tvm/python:${PYTHONPATH}',
-            'export PYTHONPATH=/root/tvm/vta/python:${PYTHONPATH}',
-            '/usr/bin/python3 -m vta.exec.rpc_server &',
-            'sleep 5',
             'export VTA_RPC_HOST=127.0.0.1',
             'export VTA_RPC_PORT=9091',
+            # this only starts the RPC server, the driver for VTA is only loaded
+            # once VTA is actually invoked
+            '/usr/bin/python3 -m vta.exec.rpc_server --host=${VTA_RPC_HOST} --port=${VTA_RPC_PORT} &',
+            # the RPC server takes quite long to start, ofte more than 5 s
+            'sleep 10',
+        ]
+
+    def run_cmds(self, node):
+        return [
             #'python vta/tests/python/integration/test_benchmark_topi_conv2d.py'
             'python vta/tests/python/integration/test_benchmark_gemm.py'
         ]
@@ -953,7 +961,7 @@ class VTAMatMul(AppConfig):
     def __init__(self, pci_device: str) -> None:
         super().__init__()
         self.pci_device = pci_device
-    
+
     def config_files(self) -> tp.Dict[str, tp.IO]:
         return {
             'matrix_multiply_opt.py':
@@ -962,29 +970,22 @@ class VTAMatMul(AppConfig):
                     'rb'
                 ),
         }
-    
-    def run_cmds(self, node):
+
+    def prepare_pre_cp(self) -> tp.List[str]:
         return [
-            'set -x',
-            (
-                'export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:'
-                '/sbin:/bin'
-            ),
-            'export HOME=/root',
             f'export VTA_DEVICE={self.pci_device}',
             'export VTA_RPC_HOST=127.0.0.1',
             'export VTA_RPC_PORT=9091',
-            'cd /root/tvm/',
-            'ip link set lo up',
-            'ip addr add 127.0.0.1/8 dev lo',
-            'echo "127.0.0.1 localhost" >>/etc/hosts',
-            'export PYTHONPATH=/root/tvm/python:${PYTHONPATH}',
-            'export PYTHONPATH=/root/tvm/vta/python:${PYTHONPATH}',
-            'cp /tmp/guest/matrix_multiply_opt.py vta/tutorials/optimize/matrix_multiply_opt.py',
+            # this only starts the RPC server, the driver for VTA is only loaded
+            # once VTA is actually invoked
             '/usr/bin/python3 -m vta.exec.rpc_server --host=${VTA_RPC_HOST} --port=${VTA_RPC_PORT} &',
-            'sleep 5',
-            'python vta/tutorials/optimize/matrix_multiply_opt.py'
+            'cp /tmp/guest/matrix_multiply_opt.py vta/tutorials/optimize/matrix_multiply_opt.py',
+            # the RPC server takes quite long to start, ofte more than 5 s
+            'sleep 10',
         ]
+
+    def run_cmds(self, node):
+        return ['python vta/tutorials/optimize/matrix_multiply_opt.py']
 
 
 class VtaAutoTune(AppConfig):
@@ -1007,33 +1008,22 @@ class VtaAutoTune(AppConfig):
                 )
         }
 
-    def run_cmds(self, node):
+    def prepare_pre_cp(self) -> tp.List[str]:
         return [
-            'set -x',
-            (
-                'export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:'
-                '/sbin:/bin'
-            ),
-            'export HOME=/root',
-            'export MXNET_HOME=/mxnet',
             f'export VTA_DEVICE={self.pci_device}',
-            'cd /root/tvm/',
-            'ip link set lo up',
-            'ip addr add 127.0.0.1/8 dev lo',
-            'echo "127.0.0.1 localhost" >>/etc/hosts',
-            'export PYTHONPATH=/root/tvm/python:${PYTHONPATH}',
-            'export PYTHONPATH=/root/tvm/vta/python:${PYTHONPATH}',
             'export TVM_TRACKER_HOST=127.0.0.1',
             'export TVM_TRACKER_PORT=9190',
-            'export VTA_RPC_PORT=9091',
             'cp /tmp/guest/measure_methods.py /root/tvm/python/tvm/autotvm/measure/measure_methods.py',
             'python3 -m tvm.exec.rpc_tracker --host=${TVM_TRACKER_HOST}  --port=${TVM_TRACKER_PORT} > log_out & ',
             'sleep 5',
-            'python3 -m vta.exec.rpc_server --tracker=${TVM_TRACKER_HOST}:${TVM_TRACKER_PORT} --key=simbricks-pci --port=${VTA_RPC_PORT} &',
+            'python3 -m vta.exec.rpc_server --tracker=${TVM_TRACKER_HOST}:${TVM_TRACKER_PORT} --key=simbricks-pci &',
             'sleep 5',
             'python3 -m tvm.exec.query_rpc_tracker --host=${TVM_TRACKER_HOST} --port=${TVM_TRACKER_PORT}',
+        ]
+
+    def run_cmds(self, node):
+        return [
             'python3 /tmp/guest/tune_relay_vta.py',
-            # 'cat /tmp/tvm_tuning_errors_*.log'
         ]
 
 
@@ -1072,25 +1062,17 @@ class VtaDeployClassification(AppConfig):
                 open(cat_path, 'rb')
         }
 
-    def run_cmds(self, node):
+    def prepare_pre_cp(self) -> tp.List[str]:
         return [
-            'set -x',
-            (
-                'export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:'
-                '/sbin:/bin'
-            ),
-            'export HOME=/root',
-            'export MXNET_HOME=/mxnet',
             f'export VTA_DEVICE={self.pci_device}',
             'export VTA_RPC_HOST=127.0.0.1',
             'export VTA_RPC_PORT=9091',
-            'cd /root/tvm/',
-            'ip link set lo up',
-            'ip addr add 127.0.0.1/8 dev lo',
-            'echo "127.0.0.1 localhost" >>/etc/hosts',
-            'export PYTHONPATH=/root/tvm/python:${PYTHONPATH}',
-            'export PYTHONPATH=/root/tvm/vta/python:${PYTHONPATH}',
+            # this only starts the RPC server, the driver for VTA is only loaded
+            # once VTA is actually invoked
             '/usr/bin/python3 -m vta.exec.rpc_server --host=${VTA_RPC_HOST} --port=${VTA_RPC_PORT} &',
-            'sleep 5',
-            'python /tmp/guest/deploy_classification.py'
+            # the RPC server takes quite long to start, ofte more than 5 s
+            'sleep 10',
         ]
+
+    def run_cmds(self, node):
+        return ['python /tmp/guest/deploy_classification.py']
