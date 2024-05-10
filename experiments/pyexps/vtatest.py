@@ -29,7 +29,7 @@ experiments = []
 for h in ['qk', 'qt', 'gk', 'gt']:
     for vta_var in ['lpn', 'rtl']:
         print("running")
-        e = exp.Experiment('vtatest-' + h + '-'+vta_var)
+        e = exp.Experiment('vtatest-' + h + '-' + vta_var)
         e.checkpoint = False
 
         node_config = node.LinuxVTANode()
@@ -40,7 +40,7 @@ for h in ['qk', 'qt', 'gk', 'gt']:
             host = sim.Gem5Host(node_config)
             host.cpu_type = 'X86KvmCPU'
         elif h == 'gt':
-            e.checkpoint = False
+            e.checkpoint = True
             node_config.app.pci_device = '0000:00:00.0'
             host = sim.Gem5Host(node_config)
         elif h == 'qk':
