@@ -60,6 +60,7 @@ for h in ['qk', 'qt', 'gk', 'gt']:
 
         host.add_pcidev(vta)
 
-        vta.pci_latency = vta.sync_period = host.pci_latency = host.sync_period = 1000
+        vta.pci_latency = vta.sync_period = host.pci_latency = \
+            host.sync_period = 400
 
         experiments.append(e)
