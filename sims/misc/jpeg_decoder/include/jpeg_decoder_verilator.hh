@@ -32,7 +32,7 @@
 #include <simbricks/rtl/axi/axil_manager.hh>
 
 // handles DMA read requests
-using AXISubordinateReadT = simbricks::AXISubordinateRead<4, 1, 4, 64>;
+using AXISubordinateReadT = simbricks::AXISubordinateRead<4, 1, 4, 16>;
 class JpegDecAXISubordinateRead : public AXISubordinateReadT {
  public:
   explicit JpegDecAXISubordinateRead(Vjpeg_decoder &top)
@@ -51,7 +51,7 @@ class JpegDecAXISubordinateRead : public AXISubordinateReadT {
 };
 
 // handles DMA write requests
-using AXISubordinateWriteT = simbricks::AXISubordinateWrite<4, 1, 4>;
+using AXISubordinateWriteT = simbricks::AXISubordinateWrite<4, 1, 4, 16>;
 class JpegDecAXISubordinateWrite : public AXISubordinateWriteT {
  public:
   explicit JpegDecAXISubordinateWrite(Vjpeg_decoder &top)
