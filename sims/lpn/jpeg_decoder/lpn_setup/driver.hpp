@@ -155,24 +155,24 @@ void UpdateConsumedRGBOffset(uint16_t len){
 
 uint8_t *GetMOutputR(){
     if(m_output_r==nullptr){
-        m_output_r = new uint8_t[m_height * m_width];
-        memset(m_output_r, 0, m_height * m_width);
+        m_output_r = new uint8_t[GetSizeOfRGB()];
+        memset(m_output_r, 0, GetSizeOfRGB());
     }
     return m_output_r;
 }
 
 uint8_t *GetMOutputG(){
     if(m_output_g==nullptr){
-        m_output_g = new uint8_t[m_height * m_width];
-        memset(m_output_g, 0, m_height * m_width);
+        m_output_g = new uint8_t[GetSizeOfRGB()];
+        memset(m_output_g, 0, GetSizeOfRGB());
     }
     return m_output_g;
 }
 
 uint8_t *GetMOutputB(){
     if(m_output_b==nullptr){
-        m_output_b = new uint8_t[m_height * m_width];
-        memset(m_output_b, 0, m_height * m_width);
+        m_output_b = new uint8_t[GetSizeOfRGB()];
+        memset(m_output_b, 0, GetSizeOfRGB());
     }
     return m_output_b;
 }
