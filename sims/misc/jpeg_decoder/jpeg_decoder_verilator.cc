@@ -59,7 +59,6 @@ int exiting = 0;
 bool tracing_active = false;
 std::string trace_filename{};
 uint64_t trace_nr = 0;
-uint64_t trace_ts_start = 0;  // start timestamp of current trace
 struct SimbricksPcieIf pcieif;
 uint64_t cur_ts = 0;
 
@@ -385,11 +384,8 @@ void apply_ctrl_changes() {
   if (!tracing_active && verilator_regs.tracing_active) {
     tracing_active = true;
     std::ostringstream trace_file{};
-    trace_file << trace_filename << "_" << trace_nr << ".vcd";
-    std::cout << "trace_file: " << trace_file.str() << "\n";
-
+    trace_file << trace_filename << "_" << trace_nr++ << ".vcd";
     trace->open(trace_file.str().c_str());
-    ++trace_nr;
   } else if (tracing_active && !verilator_regs.tracing_active) {
     tracing_active = false;
     trace->close();
@@ -418,8 +414,6 @@ int main(int argc, char **argv) {
   }
 
   bool sync = SimbricksBaseIfSyncEnabled(&pcieif.base);
-  std::cerr << "sync=" << sync << "\n";
-
   signal(SIGINT, sigint_handler);
   signal(SIGUSR1, sigusr1_handler);
 
@@ -461,7 +455,7 @@ int main(int argc, char **argv) {
     top->clk = 0;
     top->eval();
     if (tracing_active) {
-      trace->dump(cur_ts - trace_ts_start);
+      trace->dump(cur_ts);
     }
     cur_ts += clock_period / 2;
 
@@ -479,7 +473,7 @@ int main(int argc, char **argv) {
 
     // write trace
     if (tracing_active) {
-      trace->dump(cur_ts - trace_ts_start);
+      trace->dump(cur_ts);
     }
     cur_ts += clock_period / 2;
   }
