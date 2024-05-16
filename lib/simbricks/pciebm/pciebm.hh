@@ -125,7 +125,7 @@ class PcieBM {
   std::optional<uint64_t> EventNext();
 
  private:
-  uint64_t main_time_;
+  uint32_t dma_max_pending_;
   std::priority_queue<std::unique_ptr<TimedEvent>,
                       std::vector<std::unique_ptr<TimedEvent>>,
                       TimedEventPtrGreater>
@@ -176,6 +176,8 @@ class PcieBM {
   bool PcieIfInit();
 
  public:
+  PcieBM(uint32_t dma_max_pending) : dma_max_pending_(dma_max_pending) {
+  }
   /** Parse command line arguments. */
   bool ParseArgs(int argc, char *argv[]);
 

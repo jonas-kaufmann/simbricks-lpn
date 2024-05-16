@@ -23,6 +23,10 @@ class JpegDecoderBm : public pciebm::PcieBM {
  private:
   JpegDecoderRegs Registers_;
   uint64_t BytesRead_;
+
+ public:
+  JpegDecoderBm() : pciebm::PcieBM(16) {
+  }
 };
 
 template <uint64_t BufferLen>

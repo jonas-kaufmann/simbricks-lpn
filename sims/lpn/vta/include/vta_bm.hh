@@ -23,6 +23,10 @@ class VTABm : public pciebm::PcieBM {
  private:
   VTARegs Registers_;
   uint64_t BytesRead_;
+
+ public:
+  VTABm() : pciebm::PcieBM(16) {
+  }
 };
 
 template <uint64_t BufferLen>

@@ -87,7 +87,7 @@ volatile union SimbricksProtoPcieD2H *PcieBM::D2HAlloc() {
 }
 
 void PcieBM::IssueDma(std::unique_ptr<DMAOp> dma_op) {
-  if (dma_pending_.size() < DMA_MAX_PENDING) {
+  if (dma_pending_.size() < dma_max_pending_) {
 // can directly issue
 #if DEBUG_PCIEBM
     std::cout << "PcieBM::IssueDma() main_time " << main_time_
@@ -104,17 +104,19 @@ void PcieBM::IssueDma(std::unique_ptr<DMAOp> dma_op) {
         main_time_, dma_op.get(), dma_op->dma_addr, dma_op->len,
         dma_pending_.size());
 #endif
-    dma_queue_.push(std::move(dma_op));
+    dma_queue_.emplace(std::move(dma_op));
   }
 }
 
 void PcieBM::DmaTrigger() {
-  if (dma_queue_.empty() || dma_pending_.size() == DMA_MAX_PENDING)
+  if (dma_queue_.empty() || dma_pending_.size() >= dma_max_pending_)
     return;
 
-  std::unique_ptr<DMAOp> dma_op = std::move(dma_queue_.front());
-  dma_queue_.pop();
-  DmaDo(std::move(dma_op));
+  for (uint32_t i = 0; i < dma_max_pending_ - dma_pending_.size(); ++i) {
+    std::unique_ptr<DMAOp> dma_op = std::move(dma_queue_.front());
+    dma_queue_.pop();
+    DmaDo(std::move(dma_op));
+  }
 }
 
 void PcieBM::DmaDo(std::unique_ptr<DMAOp> dma_op) {
