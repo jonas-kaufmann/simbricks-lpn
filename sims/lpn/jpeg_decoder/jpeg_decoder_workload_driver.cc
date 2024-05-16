@@ -79,7 +79,7 @@ int main(int argc, char *argv[]) {
 
   // wait until decoding finished
   while (jpeg_decoder_regs.isBusy) {
-    std::this_thread::sleep_for(std::chrono::microseconds{1});
+    std::this_thread::yield();
   }
 
   // report duration
