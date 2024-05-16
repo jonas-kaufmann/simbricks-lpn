@@ -52,14 +52,13 @@ class JpegDecoderWorkload(node.AppConfig):
         return [
             'mount -t proc proc /proc',
             'mount -t sysfs sysfs /sys',
+            'echo 1 >/sys/module/vfio/parameters/enable_unsafe_noiommu_mode',
+            'echo "dead beef" >/sys/bus/pci/drivers/vfio-pci/new_id',
         ]
 
     def run_cmds(self, node: NodeConfig) -> tp.List[str]:
         # enable vfio access to JPEG decoder
-        cmds = [
-            'echo 1 >/sys/module/vfio/parameters/enable_unsafe_noiommu_mode',
-            'echo "dead beef" >/sys/bus/pci/drivers/vfio-pci/new_id',
-        ]
+        cmds = []
 
         for img in self.images:
             with Image.open(img) as loaded_img:
@@ -113,30 +112,25 @@ experiments: tp.List[exp.Experiment] = []
 for host_var in ['gem5_kvm', 'gem5_timing', 'qemu_icount', 'qemu_kvm']:
     for jpeg_var in ['lpn', 'rtl']:
         e = exp.Experiment(f'jpeg_decoder-{host_var}-{jpeg_var}')
-        e.checkpoint = host_var in ['gem5_timing']
-
         node_cfg = node.NodeConfig()
         node_cfg.kcmd_append = 'memmap=512M!1G'
         dma_src = 1 * 1024**3
         dma_dst = dma_src + 10 * 1024**2
         node_cfg.memory = 2 * 1024
+        images = glob.glob('../sims/misc/jpeg_decoder/test_img/420/*.jpg')
+        images.sort()
+        # images = images[:len(images) // 2]  # only decode half of them
         node_cfg.app = JpegDecoderWorkload(
-            '0000:00:00.0',
-            sorted(glob.glob('../sims/misc/jpeg_decoder/test_img/420/medium.jpg')),
-            # [
-                # '../sims/misc/jpeg_decoder/test_img/420/23.jpg',
-                # '../sims/misc/jpeg_decoder/test_img/420/52.jpg'
-            # ],
-            dma_src,
-            dma_dst,
-            False
+            '0000:00:00.0', images, dma_src, dma_dst, False
         )
 
         if host_var == 'gem5_kvm':
             host = sim.Gem5Host(node_cfg)
             host.cpu_type = 'X86KvmCPU'
         elif host_var == 'gem5_timing':
+            e.checkpoint = True
             host = sim.Gem5Host(node_cfg)
+            host.modify_checkpoint_tick = False
         elif host_var == 'qemu_icount':
             node_cfg.app.pci_dev = '0000:00:02.0'
             host = sim.QemuHost(node_cfg)
@@ -158,12 +152,7 @@ for host_var in ['gem5_kvm', 'gem5_timing', 'qemu_icount', 'qemu_kvm']:
         host.add_pcidev(jpeg_dev)
         e.add_pcidev(jpeg_dev)
 
-        # TODO set realistic PCIe latencies. On the physical board with no PCIe
-        # and just AXI, I measured 110 ns.
-        #
-        # With more than 2000 ns, the the lower half of the decoded image is
-        # somehow missing for QEMU KVM.
         host.pci_latency = host.sync_period = jpeg_dev.pci_latency = \
-            jpeg_dev.sync_period = 250
+            jpeg_dev.sync_period = 400
 
         experiments.append(e)
