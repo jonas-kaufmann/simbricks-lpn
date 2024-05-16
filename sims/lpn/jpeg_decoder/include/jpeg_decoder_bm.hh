@@ -32,7 +32,7 @@ class JpegDecoderBm : public pciebm::PcieBM {
 template <uint64_t BufferLen>
 struct JpegDecoderDmaReadOp : public pciebm::DMAOp {
   JpegDecoderDmaReadOp(uint64_t dma_addr, size_t len)
-      : pciebm::DMAOp{false, dma_addr, len, buffer_} {
+      : pciebm::DMAOp{0, false, dma_addr, len, buffer_} {
   }
 
  private:
@@ -41,9 +41,9 @@ struct JpegDecoderDmaReadOp : public pciebm::DMAOp {
 
 struct JpegDecoderDmaWriteOp : public pciebm::DMAOp {
   JpegDecoderDmaWriteOp(uint64_t dma_addr, size_t len)
-      : pciebm::DMAOp{true, dma_addr, len, buffer} {
+      : pciebm::DMAOp{0, true, dma_addr, len, buffer} {
     assert(len <= sizeof(buffer) && "len must be <= than buffer size");
   }
-  bool last_block;
+  bool last_block = false;
   uint8_t buffer[DMA_BLOCK_SIZE];
 };
