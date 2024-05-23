@@ -21,8 +21,9 @@ class JpegDecoderBm : public pciebm::PcieBM {
   void DevctrlUpdate(struct SimbricksProtoPcieH2DDevctrl &devctrl) override;
 
  private:
-  JpegDecoderRegs Registers_;
-  uint64_t BytesRead_;
+  JpegDecoderRegs Registers_{};
+  uint64_t BytesRead_ = 0;
+  uint64_t BytesWritten_ = 0;
 
  public:
   JpegDecoderBm() : pciebm::PcieBM(16) {
@@ -44,6 +45,5 @@ struct JpegDecoderDmaWriteOp : public pciebm::DMAOp {
       : pciebm::DMAOp{0, true, dma_addr, len, buffer} {
     assert(len <= sizeof(buffer) && "len must be <= than buffer size");
   }
-  bool last_block = false;
   uint8_t buffer[DMA_BLOCK_SIZE];
 };
