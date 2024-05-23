@@ -125,38 +125,39 @@ class PcieBM {
   std::optional<uint64_t> EventNext();
 
  private:
+  uint64_t main_time_ = 0;
   uint32_t dma_max_pending_;
   std::priority_queue<std::unique_ptr<TimedEvent>,
                       std::vector<std::unique_ptr<TimedEvent>>,
                       TimedEventPtrGreater>
-      events_;
-  std::queue<std::unique_ptr<DMAOp>> dma_queue_;
-  std::unordered_map<uintptr_t, std::unique_ptr<DMAOp>> dma_pending_;
+      events_{};
+  std::queue<std::unique_ptr<DMAOp>> dma_queue_{};
+  std::unordered_map<uintptr_t, std::unique_ptr<DMAOp>> dma_pending_{};
 
   struct SimbricksBaseIfParams pcieParams_;
-  const char *shmPath_;
+  const char *shmPath_ = nullptr;
   struct SimbricksPcieIf pcieif_;
   struct SimbricksProtoPcieDevIntro dintro_;
 
   /* for signal handlers */
-  volatile bool exiting_;
-  volatile bool stat_flag_;
+  volatile bool exiting_ = false;
+  volatile bool stat_flag_ = false;
 
-  uint64_t h2d_poll_total_;
-  uint64_t h2d_poll_suc_;
-  uint64_t h2d_poll_sync_;
+  uint64_t h2d_poll_total_ = 0;
+  uint64_t h2d_poll_suc_ = 0;
+  uint64_t h2d_poll_sync_ = 0;
   /* counted from signal USR2 */
-  uint64_t s_h2d_poll_total_;
-  uint64_t s_h2d_poll_suc_;
-  uint64_t s_h2d_poll_sync_;
+  uint64_t s_h2d_poll_total_ = 0;
+  uint64_t s_h2d_poll_suc_ = 0;
+  uint64_t s_h2d_poll_sync_ = 0;
 
-  uint64_t n2d_poll_total_;
-  uint64_t n2d_poll_suc_;
-  uint64_t n2d_poll_sync_;
+  uint64_t n2d_poll_total_ = 0;
+  uint64_t n2d_poll_suc_ = 0;
+  uint64_t n2d_poll_sync_ = 0;
   /* counted from signal USR2 */
-  uint64_t s_n2d_poll_total_;
-  uint64_t s_n2d_poll_suc_;
-  uint64_t s_n2d_poll_sync_;
+  uint64_t s_n2d_poll_total_ = 0;
+  uint64_t s_n2d_poll_suc_ = 0;
+  uint64_t s_n2d_poll_sync_ = 0;
 
   volatile union SimbricksProtoPcieD2H *D2HAlloc();
 

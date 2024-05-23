@@ -33,11 +33,12 @@
 #include <unistd.h>
 
 #include <cassert>
+#include <cstddef>
 #include <cstring>
 #include <ctime>
 #include <iostream>
 #include <memory>
-#include <vector>
+#include <thread>
 
 #include "simbricks/base/if.h"
 #include "simbricks/pcie/if.h"
@@ -47,7 +48,6 @@ extern "C" {
 }
 
 #define DEBUG_PCIEBM 0
-#define DMA_MAX_PENDING 64
 
 namespace pciebm {
 
@@ -147,8 +147,7 @@ void PcieBM::DmaDo(std::unique_ptr<DMAOp> dma_op) {
     write->req_id = reinterpret_cast<uintptr_t>(dma_op.get());
     write->offset = dma_op->dma_addr;
     write->len = dma_op->len;
-    // NOLINTNEXTLINE(google-readability-casting)
-    memcpy((void *)write->data, dma_op->data, dma_op->len);
+    memcpy(const_cast<uint8_t *>(write->data), dma_op->data, dma_op->len);
 
 #if DEBUG_PCIEBM
     uint8_t *tmp = static_cast<uint8_t *>(dma_op->data);
@@ -299,8 +298,7 @@ void PcieBM::H2DReadcomp(
          main_time_, dma_op.get(), dma_op->dma_addr, dma_op->len);
 #endif
 
-  // NOLINTNEXTLINE(google-readability-casting)
-  memcpy(dma_op->data, (void *)readcomp->data, dma_op->len);
+  memcpy(dma_op->data, const_cast<uint8_t *>(readcomp->data), dma_op->len);
   DmaComplete(std::move(dma_op));
   DmaTrigger();
 }
@@ -308,7 +306,6 @@ void PcieBM::H2DReadcomp(
 void PcieBM::H2DWritecomp(
     volatile struct SimbricksProtoPcieH2DWritecomp *writecomp) {
   uintptr_t dma_op_ptr = static_cast<uintptr_t>(writecomp->req_id);
-  // NOLINTNEXTLINE(performance-no-int-to-ptr)
   std::unique_ptr<DMAOp> dma_op =
       std::move(dma_pending_.extract(dma_op_ptr).mapped());
 
