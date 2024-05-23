@@ -23,9 +23,10 @@
 from __future__ import annotations
 
 import io
+import os
 import tarfile
 import typing as tp
-import os
+
 import requests
 
 
@@ -921,14 +922,13 @@ class LinuxVTANode(NodeConfig):
             'export PYTHONPATH=/root/tvm/python:${PYTHONPATH}',
             'export PYTHONPATH=/root/tvm/vta/python:${PYTHONPATH}',
             'export MXNET_HOME=/mxnet',
-        ]
-
-    def prepare_post_cp(self):
-        return [
             'echo 1 >/sys/module/vfio/parameters/enable_unsafe_noiommu_mode',
             'echo "dead beef" >/sys/bus/pci/drivers/vfio-pci/new_id',
             'cat /sys/module/vfio/parameters/enable_unsafe_noiommu_mode',
         ]
+
+    def prepare_post_cp(self):
+        return []
 
 
 class VTATest(AppConfig):
@@ -982,10 +982,11 @@ class VTAMatMul(AppConfig):
             'cp /tmp/guest/matrix_multiply_opt.py vta/tutorials/optimize/matrix_multiply_opt.py',
             # the RPC server takes quite long to start, ofte more than 5 s
             'sleep 10',
+            'python vta/tutorials/optimize/matrix_multiply_opt.py'
         ]
 
     def run_cmds(self, node):
-        return ['python vta/tutorials/optimize/matrix_multiply_opt.py']
+        return []
 
 
 class VtaAutoTune(AppConfig):
