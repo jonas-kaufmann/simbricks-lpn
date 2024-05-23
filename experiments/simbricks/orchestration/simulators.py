@@ -445,7 +445,7 @@ class Gem5Host(HostSim):
         self.extra_main_args = []
         self.extra_config_args = []
         self.variant = 'fast'
-        self.modify_checkpoint_tick = True
+        self.modify_checkpoint_tick = False
         """Whether to modify the event queue tick before restoring a checkpoint.
         When this is enabled, the restored checkpoint will start at event queue
         tick 0. This is a performance optimization since now, connected
