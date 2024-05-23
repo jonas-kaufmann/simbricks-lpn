@@ -36,8 +36,7 @@ static jpeg_mcu_block  m_mcu_dec(&m_bit_buffer, &m_dht);
 
 static uint16_t m_width = 0;
 static uint16_t m_height = 0;
-static uint16_t rgb_cur_len = 0;
-static uint16_t rgb_consumed_len = 0;
+static size_t rgb_consumed_len = 0;
 static int num_tokens_for_cur_img = 0;
 
 static int16_t CH_dc_coeff_Y = 0;
@@ -73,10 +72,9 @@ bool IsCurImgFinished() {
 }
 
 void Reset() {
-    printf("Calling Reset to the whole LPN\n");
+    std::cerr << "Calling Reset to the whole LPN\n";
     m_width = 0;
     m_height = 0;
-    rgb_cur_len = 0;
     rgb_consumed_len = 0;
     num_tokens_for_cur_img = 0;
 
@@ -149,7 +147,7 @@ size_t GetConsumedRGBOffset(){
     return rgb_consumed_len;
 }
 
-void UpdateConsumedRGBOffset(uint16_t len){
+void UpdateConsumedRGBOffset(size_t len){
     rgb_consumed_len = len;
 }
 
