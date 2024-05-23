@@ -28,8 +28,8 @@
 
 #include <cstdint>
 
-#include <simbricks/rtl/axi/axi_subordinate.hh>
-#include <simbricks/rtl/axi/axil_manager.hh>
+#include <simbricks/axi/axi_subordinate.hh>
+#include <simbricks/axi/axil_manager.hh>
 
 // handles DMA read requests
 using AXISubordinateReadT = simbricks::AXISubordinateRead<4, 1, 4, 16>;

@@ -39,7 +39,6 @@
 
 #include "include/jpeg_decoder_regs.hh"
 #include "simbricks/base/cxxatomicfix.h"
-#include "simbricks/rtl/axi/axil_manager.hh"
 #include "verilated.h"
 extern "C" {
 #include "simbricks/pcie/if.h"
