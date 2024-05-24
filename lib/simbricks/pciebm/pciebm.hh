@@ -166,9 +166,9 @@ class PcieBM {
   void H2DReadcomp(volatile struct SimbricksProtoPcieH2DReadcomp *readcomp);
   void H2DWritecomp(volatile struct SimbricksProtoPcieH2DWritecomp *writecomp);
   void H2DDevctrl(volatile struct SimbricksProtoPcieH2DDevctrl *devctrl);
-  void PollH2D();
+  bool PollH2D();
 
-  void EventTrigger();
+  bool EventTrigger();
 
   void DmaDo(std::unique_ptr<DMAOp> dma_op);
   void DmaTrigger();

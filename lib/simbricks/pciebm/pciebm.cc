@@ -38,7 +38,6 @@
 #include <ctime>
 #include <iostream>
 #include <memory>
-#include <thread>
 
 #include "simbricks/base/if.h"
 #include "simbricks/pcie/if.h"
@@ -324,7 +323,7 @@ void PcieBM::H2DDevctrl(volatile struct SimbricksProtoPcieH2DDevctrl *devctrl) {
   DevctrlUpdate(*(struct SimbricksProtoPcieH2DDevctrl *)devctrl);
 }
 
-void PcieBM::PollH2D() {
+bool PcieBM::PollH2D() {
   volatile union SimbricksProtoPcieH2D *msg =
       SimbricksPcieIfH2DInPoll(&pcieif_, main_time_);
   uint8_t type;
@@ -335,7 +334,7 @@ void PcieBM::PollH2D() {
   }
 
   if (msg == nullptr)
-    return;
+    return false;
 
   h2d_poll_suc_ += 1;
   if (stat_flag_) {
@@ -384,6 +383,7 @@ void PcieBM::PollH2D() {
   }
 
   SimbricksPcieIfH2DInDone(&pcieif_, msg);
+  return true;
 }
 
 uint64_t PcieBM::TimePs() const {
@@ -392,17 +392,17 @@ uint64_t PcieBM::TimePs() const {
 
 std::optional<uint64_t> PcieBM::EventNext() {
   if (events_.empty())
-    return {};
+    return std::nullopt;
 
   return {events_.top()->time};
 }
 
-void PcieBM::EventTrigger() {
+bool PcieBM::EventTrigger() {
   if (events_.empty())
-    return;
+    return false;
 
   if (events_.top()->time > main_time_)
-    return;
+    return false;
 
   std::unique_ptr<TimedEvent> evt =
       // The const_cast here to get rid of the const qualifier from
@@ -412,10 +412,10 @@ void PcieBM::EventTrigger() {
   events_.pop();
 
   ExecuteEvent(std::move(evt));
+  return true;
 }
 
 void PcieBM::YieldPoll() {
-  /* do nothing */
 }
 
 bool PcieBM::PcieIfInit() {
@@ -490,40 +490,33 @@ int PcieBM::RunMain() {
   fprintf(stderr, "sync_pci=%d\n", sync_pci);
 
   while (!exiting_) {
-    while (true) {
-      int res = SimbricksPcieIfD2HOutSync(&pcieif_, main_time_);
-      if (res == 0 || res == 1)
-        break;
-
-      fprintf(stderr,
-              "warn: SimbricksPcieIfD2HOutSync failed with %i (t=%lu)\n", res,
-              main_time_);
+    // send sync messages
+    while (SimbricksPcieIfD2HOutSync(&pcieif_, main_time_)) {
       YieldPoll();
     }
-
     // process everything up to the current timestamp
-    bool first = true;
+    // process all available messages and wait until we actually get one with
+    // a higher timestamp
     do {
-      if (!first)
-        YieldPoll();
-      first = false;
       PollH2D();
-      EventTrigger();
+    } while (SimbricksPcieIfH2DInTimestamp(&pcieif_) <= main_time_);
+    // process all events that are due
+    while (EventTrigger()) {
+    }
 
-      if (sync_pci) {
-        next_ts = std::min(SimbricksPcieIfH2DInTimestamp(&pcieif_),
-                           SimbricksPcieIfD2HOutNextSync(&pcieif_));
-      } else {
-        next_ts = main_time_ + max_step;
-      }
+    if (sync_pci) {
+      next_ts = std::min(SimbricksPcieIfH2DInTimestamp(&pcieif_),
+                         SimbricksPcieIfD2HOutNextSync(&pcieif_));
+    } else {
+      next_ts = main_time_ + max_step;
+    }
 
-      std::optional<uint64_t> ev_ts = EventNext();
-      if (ev_ts)
-        next_ts = std::min(*ev_ts, next_ts);
-    } while (next_ts <= main_time_ && !exiting_);
+    std::optional<uint64_t> ev_ts = EventNext();
+    if (ev_ts) {
+      next_ts = std::min(*ev_ts, next_ts);
+    }
+    assert(next_ts > main_time_);
     main_time_ = next_ts;
-
-    YieldPoll();
   }
 
   /* print statistics */
