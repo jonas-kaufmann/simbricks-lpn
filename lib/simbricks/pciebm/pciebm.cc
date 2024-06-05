@@ -111,11 +111,9 @@ void PcieBM::DmaTrigger() {
   if (dma_queue_.empty() || dma_pending_.size() >= dma_max_pending_)
     return;
 
-  for (uint32_t i = 0; i < dma_max_pending_ - dma_pending_.size(); ++i) {
-    std::unique_ptr<DMAOp> dma_op = std::move(dma_queue_.front());
-    dma_queue_.pop();
-    DmaDo(std::move(dma_op));
-  }
+  std::unique_ptr<DMAOp> dma_op = std::move(dma_queue_.front());
+  dma_queue_.pop();
+  DmaDo(std::move(dma_op));
 }
 
 void PcieBM::DmaDo(std::unique_ptr<DMAOp> dma_op) {
