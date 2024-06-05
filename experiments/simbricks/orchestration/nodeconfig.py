@@ -958,9 +958,11 @@ class VTATest(AppConfig):
 
 class VTAMatMul(AppConfig):
 
-    def __init__(self, pci_device: str) -> None:
+    def __init__(self, pci_device: str, gem5_cp: bool) -> None:
         super().__init__()
         self.pci_device = pci_device
+        self.gem5_cp = False
+        """Whether to use fine-grained gem5 checkpointing."""
 
     def config_files(self) -> tp.Dict[str, tp.IO]:
         return {
@@ -973,6 +975,7 @@ class VTAMatMul(AppConfig):
 
     def prepare_pre_cp(self) -> tp.List[str]:
         return [
+            f'export GEM5_CP={int(self.gem5_cp)}',
             f'export VTA_DEVICE={self.pci_device}',
             'export VTA_RPC_HOST=127.0.0.1',
             'export VTA_RPC_PORT=9091',
@@ -981,7 +984,7 @@ class VTAMatMul(AppConfig):
             '/usr/bin/python3 -m vta.exec.rpc_server --host=${VTA_RPC_HOST} --port=${VTA_RPC_PORT} &',
             'cp /tmp/guest/matrix_multiply_opt.py vta/tutorials/optimize/matrix_multiply_opt.py',
             # the RPC server takes quite long to start, ofte more than 5 s
-            'sleep 10',
+            'sleep 5',
             'python vta/tutorials/optimize/matrix_multiply_opt.py'
         ]
 

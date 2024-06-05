@@ -41,6 +41,7 @@ for h in ['qk', 'qt', 'gk', 'gt']:
             host.cpu_type = 'X86KvmCPU'
         elif h == 'gt':
             e.checkpoint = True
+            node_config.app.gem5_cp = True
             node_config.app.pci_device = '0000:00:00.0'
             host = sim.Gem5Host(node_config)
         elif h == 'qk':
