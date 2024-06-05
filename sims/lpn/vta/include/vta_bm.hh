@@ -4,7 +4,7 @@
 
 #include "vta_regs.hh"
 
-#define DMA_BLOCK_SIZE 32
+#define DMA_BLOCK_SIZE 2048
 
 class VTABm : public pciebm::PcieBM {
   void SetupIntro(struct SimbricksProtoPcieDevIntro &dev_intro) override;
