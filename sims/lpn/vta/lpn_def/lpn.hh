@@ -14,7 +14,7 @@
 #include "sims/lpn/vta/src/parse_tokens.hh"
 
 namespace lpnvta {
-    uint64_t CYCLEPERIOD = 1'000'000 / 150;
+    uint64_t CYCLEPERIOD = 1'000'000 / 2'000; // 2 GHz
 }
 #define InsertMemOp(tag, rw_req, insn_ptr)                                    \
     auto& front = frontReq(lpn_req_map[tag]);                                   \

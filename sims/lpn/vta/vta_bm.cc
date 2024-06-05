@@ -24,8 +24,6 @@
 #include "sims/lpn/vta/lpn_def/lpn_def.hh"
 
 
-#define FREQ_MHZ 150000000
-#define FREQ_MHZ_NORMALIZED 150
 #define MASK5 0b11111
 #define MASK6 0b111111
 
