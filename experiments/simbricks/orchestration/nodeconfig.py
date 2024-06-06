@@ -958,7 +958,7 @@ class VTATest(AppConfig):
 
 class VTAMatMul(AppConfig):
 
-    def __init__(self, pci_device: str, gem5_cp: bool) -> None:
+    def __init__(self, pci_device: str) -> None:
         super().__init__()
         self.pci_device = pci_device
         self.gem5_cp = False
