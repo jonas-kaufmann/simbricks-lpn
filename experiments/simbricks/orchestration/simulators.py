@@ -453,6 +453,9 @@ class Gem5Host(HostSim):
         tick before the actual workload can be executed. Disable this if you
         need to retain the differences in virtual time between multiple gem5
         instances."""
+        self.sync = False
+        """Whether to synchronize with connected simulators. This is not
+        compatible with atomic CPU models."""
 
     def resreq_cores(self) -> int:
         return 1
@@ -506,7 +509,7 @@ class Gem5Host(HostSim):
                 f':latency={self.pci_latency}ns'
                 f':sync_interval={self.sync_period}ns'
             )
-            if cpu_type == 'TimingSimpleCPU':
+            if self.sync:
                 cmd += ':sync'
             cmd += ' '
 
@@ -517,7 +520,7 @@ class Gem5Host(HostSim):
                 f':latency={self.mem_latency}ns'
                 f':sync_interval={self.sync_period}ns'
             )
-            if cpu_type == 'TimingSimpleCPU':
+            if self.sync:
                 cmd += ':sync'
             cmd += ' '
 
@@ -529,7 +532,7 @@ class Gem5Host(HostSim):
                 f':latency={net.eth_latency}ns'
                 f':sync_interval={net.sync_period}ns'
             )
-            if cpu_type == 'TimingSimpleCPU':
+            if self.sync:
                 cmd += ':sync'
             cmd += ' '
 
