@@ -16,7 +16,19 @@ apt-get -y install \
     numactl \
     sysbench \
     time \
-    bsdextrautils
+    bsdextrautils \
+    wget \
+    build-essential
+
+mkdir -p /root
+pushd /root
+wget https://oc.cs.uni-saarland.de/index.php/s/CSFRMcpKTprZQXj/download/npb.tar.gz
+tar -xvzf npb.tar.gz
+rm npb.tar.gz
+pushd npb
+make suite
+popd
+popd
 
 pushd /tmp/input
 mv guestinit.sh /home/ubuntu/guestinit.sh
