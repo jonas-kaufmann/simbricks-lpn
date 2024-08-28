@@ -56,19 +56,21 @@ for host_sim in host_sim_choices:
         host = sim.Gem5Host(node_config)
         host.cpu_type = 'X86KvmCPU'
         host.name = 'host0'
+        host.sync = True
         host.wait = True
 
     # This is just a dummy to have a simulator to synchronize with. We need this
     # to evaluate the overhead for scheduling an event for synchronization every
-    # x ns.
+    # x ns. You need to uncomment the two lines below to enable injecting these
+    # synchronization events.
     vta = sim.VTALpnBmDev()
     vta.name = 'vta0'
-    host.add_pcidev(vta)
+    # host.add_pcidev(vta)
 
     vta.pci_latency = vta.sync_period = host.pci_latency = \
-        host.sync_period = host.pci_latency = host.sync_period = 2000
+        host.sync_period = host.pci_latency = host.sync_period = 1000  #1 us
 
     e.add_host(host)
-    e.add_pcidev(vta)
+    # e.add_pcidev(vta)
 
     experiments.append(e)
