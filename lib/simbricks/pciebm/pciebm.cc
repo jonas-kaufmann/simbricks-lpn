@@ -175,6 +175,8 @@ void PcieBM::DmaDo(std::unique_ptr<DMAOp> dma_op) {
       reinterpret_cast<uintptr_t>(dma_op.get()), std::move(dma_op));
   assert(inserted.second &&
          "PcieBM::DMADo() Inserting dma_op into dma_pending_ failed.");
+  std::cout << "pcieBM::DmaDo() TimePs()=" << TimePs() << " dma_pending.size()=" << dma_pending_.size()
+            << " dma_queue_.size()=" << dma_queue_.size() << "\n";
 }
 
 void PcieBM::MsiIssue(uint8_t vec) {
