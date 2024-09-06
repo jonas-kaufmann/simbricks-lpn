@@ -509,7 +509,7 @@ class Gem5Host(HostSim):
                 f':latency={self.pci_latency}ns'
                 f':sync_interval={self.sync_period}ns'
             )
-            if self.sync:
+            if self.sync and not env.create_cp:
                 cmd += ':sync'
             cmd += ' '
 
@@ -520,7 +520,7 @@ class Gem5Host(HostSim):
                 f':latency={self.mem_latency}ns'
                 f':sync_interval={self.sync_period}ns'
             )
-            if self.sync:
+            if self.sync and not env.create_cp:
                 cmd += ':sync'
             cmd += ' '
 
@@ -532,7 +532,7 @@ class Gem5Host(HostSim):
                 f':latency={net.eth_latency}ns'
                 f':sync_interval={net.sync_period}ns'
             )
-            if self.sync:
+            if self.sync and not env.create_cp:
                 cmd += ':sync'
             cmd += ' '
 
