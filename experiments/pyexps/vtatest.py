@@ -44,6 +44,7 @@ for h in ['qk', 'qt', 'gk', 'gt']:
             node_config.app.gem5_cp = True
             node_config.app.pci_device = '0000:00:00.0'
             host = sim.Gem5Host(node_config)
+            host.sync = True
         elif h == 'qk':
             host = sim.QemuHost(node_config)
         elif h == 'qt':
