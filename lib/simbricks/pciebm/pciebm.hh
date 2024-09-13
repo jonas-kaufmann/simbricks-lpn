@@ -126,13 +126,16 @@ class PcieBM {
 
  private:
   uint64_t main_time_ = 0;
-  uint32_t dma_max_pending_;
+  uint32_t dma_read_max_pending_;
+  uint32_t dma_write_max_pending_;
   std::priority_queue<std::unique_ptr<TimedEvent>,
                       std::vector<std::unique_ptr<TimedEvent>>,
                       TimedEventPtrGreater>
       events_{};
-  std::queue<std::unique_ptr<DMAOp>> dma_queue_{};
-  std::unordered_map<uintptr_t, std::unique_ptr<DMAOp>> dma_pending_{};
+  std::queue<std::unique_ptr<DMAOp>> dma_read_queue_{};
+  std::queue<std::unique_ptr<DMAOp>> dma_write_queue_{};
+  std::unordered_map<uintptr_t, std::unique_ptr<DMAOp>> dma_read_pending_{};
+  std::unordered_map<uintptr_t, std::unique_ptr<DMAOp>> dma_write_pending_{};
 
   struct SimbricksBaseIfParams pcieParams_;
   const char *shmPath_ = nullptr;
@@ -177,8 +180,8 @@ class PcieBM {
   bool PcieIfInit();
 
  public:
-  PcieBM(uint32_t dma_max_pending) : dma_max_pending_(dma_max_pending) {
-  }
+  PcieBM(uint32_t dma_max_pending) : dma_read_max_pending_(dma_max_pending), dma_write_max_pending_(dma_max_pending) {}
+
   /** Parse command line arguments. */
   bool ParseArgs(int argc, char *argv[]);
 

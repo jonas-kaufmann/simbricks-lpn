@@ -8,7 +8,7 @@ apt-get -y install \
     iputils-ping \
     lbzip2 \
     netperf \
-    netcat \
+    netcat-openbsd \
     ethtool \
     tcpdump \
     pciutils \
@@ -19,6 +19,8 @@ apt-get -y install \
     bsdextrautils \
     wget \
     build-essential
+
+    
 
 mkdir -p /root
 pushd /root
@@ -32,8 +34,8 @@ popd
 
 pushd /tmp/input
 mv guestinit.sh /home/ubuntu/guestinit.sh
-mv bzImage /boot/vmlinuz-5.15.93
-mv config-5.15.93 /boot/
+mv bzImage /boot/vmlinuz-6.11.0
+mv config-6.11.0 /boot/
 mv m5 /sbin/m5
 
 GRUB_CFG_FILE=/etc/default/grub.d/50-cloudimg-settings.cfg
@@ -54,3 +56,26 @@ cp -a usr/* /usr/
 # cleanup
 popd
 rm -rf /tmp/input
+
+apt-get -y install \
+    gcc-multilib \
+    build-essential \
+    libssl-dev \
+    llvm \
+    lld \
+    libelf-dev \
+    clang \
+    meson \
+    cmake \
+    pkg-config \
+    libsystemd-dev
+
+pushd /root
+git clone https://github.com/sched-ext/scx.git
+pushd scx
+meson setup build --prefix ~ -Denable_rust=false
+meson compile -C build
+# meson install -C build
+popd
+popd
+

@@ -378,6 +378,7 @@ class QemuHost(HostSim):
         return 8192
 
     def prep_cmds(self, env: ExpEnv) -> tp.List[str]:
+        # return []
         return [
             f'{env.qemu_img_path} create -f qcow2 -o '
             f'backing_file="{env.hd_path(self.node_config.disk_image)}" '
@@ -402,6 +403,8 @@ class QemuHost(HostSim):
             f'init=/home/ubuntu/guestinit.sh rw{kcmd_append}" '
             f'-m {self.node_config.memory} -smp {self.node_config.cores} '
         )
+
+        print("mycmd", cmd)
 
         if self.sync:
             unit = self.cpu_freq[-3:]

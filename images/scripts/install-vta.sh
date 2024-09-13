@@ -1,6 +1,8 @@
 #!/bin/bash
 set -eux
 
+git clone https://<yourname>:<yourkey>@github.com/dslab-epfl/AcceleratorVM.git
+
 apt-get update
 apt-get -y install \
     build-essential \
@@ -33,14 +35,13 @@ apt-get -y install \
     libquadmath0 \
     unzip
 
-
 # install mxnet and clone the model
-pip install mxnet
-mkdir -p /mxnet/models
-cd /mxnet/models
-wget https://apache-mxnet.s3-accelerate.dualstack.amazonaws.com/gluon/models/resnet18_v1-a0666292.zip
-unzip resnet18_v1-a0666292.zip
-rm resnet18_v1-a0666292.zip
+# pip install mxnet
+# mkdir -p /mxnet/models
+# cd /mxnet/models
+# wget https://apache-mxnet.s3-accelerate.dualstack.amazonaws.com/gluon/models/resnet18_v1-a0666292.zip
+# unzip resnet18_v1-a0666292.zip
+# rm resnet18_v1-a0666292.zip
 cd /
 
 
@@ -49,8 +50,10 @@ export PYTHONPATH=$TVM_HOME/python:$TVM_HOME/vta/python
 export VTA_HW_PATH=$TVM_HOME/3rdparty/vta-hw
 
 
+
 mkdir -p /root
-git clone --recursive --branch lpn https://github.com/jonas-kaufmann/tvm-simbricks.git /root/tvm
+# git clone --recursive --branch lpn https://github.com/jonas-kaufmann/tvm-simbricks.git /root/tvm
+git clone --recursive https://github.com/MJChku/tvm-simbricks /root/tvm
 cd /root/tvm
 cp 3rdparty/vta-hw/config/simbricks_pci_sample.json 3rdparty/vta-hw/config/vta_config.json
 mkdir build
@@ -59,9 +62,6 @@ cd build
 cmake ..
 make -j`nproc`
 make -j`nproc` runtime vta
-make clean # some hack because of broken build system
-make -j`nproc`
-make runtime vta -j`nproc`
 
 
 cd /root

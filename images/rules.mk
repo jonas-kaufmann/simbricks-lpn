@@ -23,7 +23,7 @@
 include mk/subdir_pre.mk
 
 PACKER_VERSION := 1.7.0
-KERNEL_VERSION := 5.15.93
+KERNEL_VERSION := 6.11.0
 
 BASE_IMAGE := $(d)output-base/base
 MEMCACHED_IMAGE := $(d)output-memcached/memcached
@@ -159,10 +159,10 @@ $(kheader_tar): $(kernel_dir)/vmlinux
 	mkdir -p $(kheader_dir)
 	$(MAKE) -C $(kernel_dir) headers_install INSTALL_HDR_PATH=$(abspath $(kheader_dir)/usr)
 	$(MAKE) -C $(kernel_dir) modules_install INSTALL_MOD_PATH=$(abspath $(kheader_dir))
-	rm -f $(kheader_dir)/lib/modules/$(KERNEL_VERSION)/build
+	rm -f $(kheader_dir)/lib/modules/6.10.0-rc2/build
 	ln -s /usr/src/linux-headers-$(KERNEL_VERSION) \
-	    $(kheader_dir)/lib/modules/$(KERNEL_VERSION)/build
-	rm -f $(kheader_dir)/lib/modules/$(KERNEL_VERSION)/source
+	    $(kheader_dir)/lib/modules/6.10.0-rc2/build
+	rm -f $(kheader_dir)/lib/modules/6.10.0-rc2/source
 	mkdir -p $(kheader_dir)/usr/src/linux-headers-$(KERNEL_VERSION)
 	cp -r $(kernel_dir)/.config $(kernel_dir)/Makefile \
 	    $(kernel_dir)/Module.symvers $(kernel_dir)/scripts \
@@ -181,9 +181,9 @@ $(kheader_tar): $(kernel_dir)/vmlinux
 
 $(kernel_dir)/.config: $(kernel_pardir)/config-$(KERNEL_VERSION)
 	rm -rf $(kernel_dir)
-	wget -O - https://cdn.kernel.org/pub/linux/kernel/v5.x/linux-$(KERNEL_VERSION).tar.xz | \
+	wget -O - https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-$(KERNEL_VERSION).tar.xz | \
 	    tar xJf - -C $(kernel_pardir)
-	cd $(kernel_dir) && patch -p1 < ../linux-$(KERNEL_VERSION)-timers-gem5.patch
+	# cd $(kernel_dir) && patch -p1 < ../linux-$(KERNEL_VERSION)-timers-gem5.patch
 	cp $< $@
 
 ################################################

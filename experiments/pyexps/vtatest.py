@@ -58,7 +58,7 @@ for h in ['qk', 'qt', 'gk', 'gt']:
         elif vta_var == 'rtl':
             vta = sim.VTADev()
         vta.name = 'vta0'
-        vta.clock_freq = 2000  # 2 GHz
+        vta.clock_freq = 150 # in Mhz
         e.add_pcidev(vta)
 
         host.add_pcidev(vta)

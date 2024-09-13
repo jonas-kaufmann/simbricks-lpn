@@ -86,34 +86,60 @@ volatile union SimbricksProtoPcieD2H *PcieBM::D2HAlloc() {
 }
 
 void PcieBM::IssueDma(std::unique_ptr<DMAOp> dma_op) {
-  if (dma_pending_.size() < dma_max_pending_) {
-// can directly issue
-#if DEBUG_PCIEBM
-    std::cout << "PcieBM::IssueDma() main_time " << main_time_
-              << " issuing dma " << (dma_op->write ? "write" : "read") << " op "
-              << dma_op.get() << " addr " << dma_op->dma_addr << " len "
-              << dma_op->len << " pending " << dma_pending_.size() << std::endl;
-#endif
-    DmaDo(std::move(dma_op));
-  } else {
-#if DEBUG_PCIEBM
-    printf(
-        "main_time = %lu: pciebm: enqueuing dma op %p addr %lx len %zu pending "
-        "%zu\n",
-        main_time_, dma_op.get(), dma_op->dma_addr, dma_op->len,
-        dma_pending_.size());
-#endif
-    dma_queue_.emplace(std::move(dma_op));
+  if(dma_op->write){
+    if (dma_write_pending_.size() < dma_write_max_pending_) {
+  // can directly issue
+  #if DEBUG_PCIEBM
+      std::cout << "PcieBM::IssueDma() main_time " << main_time_/1000000
+                << " issuing dma " << (dma_op->write ? "write" : "read") << " op "
+                << dma_op.get() << " addr " << dma_op->dma_addr << " len "
+                << dma_op->len << " pending " << dma_write_pending_.size() << std::endl;
+  #endif
+      DmaDo(std::move(dma_op));
+    } else {
+  #if DEBUG_PCIEBM
+      printf(
+          "main_time = %lu: pciebm: enqueuing dma op %p addr %lx len %zu pending "
+          "%zu\n",
+          main_time_/1000000, dma_op.get(), dma_op->dma_addr, dma_op->len,
+          dma_write_pending_.size());
+  #endif
+      dma_write_queue_.emplace(std::move(dma_op));
+    }
+  }else{
+        if (dma_read_pending_.size() < dma_read_max_pending_) {
+  // can directly issue
+  #if DEBUG_PCIEBM
+      std::cout << "PcieBM::IssueDma() main_time " << main_time_/1000000
+                << " issuing dma " << (dma_op->write ? "write" : "read") << " op "
+                << dma_op.get() << " addr " << dma_op->dma_addr << " len "
+                << dma_op->len << " pending " << dma_read_pending_.size() << std::endl;
+  #endif
+      DmaDo(std::move(dma_op));
+    } else {
+  #if DEBUG_PCIEBM
+      printf(
+          "main_time = %lu: pciebm: enqueuing dma op %p addr %lx len %zu pending "
+          "%zu\n",
+          main_time_/1000000, dma_op.get(), dma_op->dma_addr, dma_op->len,
+          dma_read_pending_.size());
+  #endif
+      dma_read_queue_.emplace(std::move(dma_op));
+    }
   }
 }
 
 void PcieBM::DmaTrigger() {
-  if (dma_queue_.empty() || dma_pending_.size() >= dma_max_pending_)
-    return;
-
-  std::unique_ptr<DMAOp> dma_op = std::move(dma_queue_.front());
-  dma_queue_.pop();
-  DmaDo(std::move(dma_op));
+  if (!(dma_read_queue_.empty() || dma_read_pending_.size() >= dma_read_max_pending_)){
+    std::unique_ptr<DMAOp> dma_op = std::move(dma_read_queue_.front());
+    dma_read_queue_.pop();
+    DmaDo(std::move(dma_op));
+  }
+  if (!(dma_write_queue_.empty() || dma_write_pending_.size() >= dma_write_max_pending_)){
+    std::unique_ptr<DMAOp> dma_op2 = std::move(dma_write_queue_.front());
+    dma_write_queue_.pop();
+    DmaDo(std::move(dma_op2));
+  }
 }
 
 void PcieBM::DmaDo(std::unique_ptr<DMAOp> dma_op) {
@@ -123,9 +149,9 @@ void PcieBM::DmaDo(std::unique_ptr<DMAOp> dma_op) {
 #if DEBUG_PCIEBM
   printf(
       "main_time = %lu: pciebm: executing dma_op %p addr %lx len %zu pending "
-      "%zu\n",
-      main_time_, dma_op.get(), dma_op->dma_addr, dma_op->len,
-      dma_pending_.size());
+      "(r%zu,w%zu)\n",
+      main_time_/1000000, dma_op.get(), dma_op->dma_addr, dma_op->len,
+      dma_read_pending_.size(), dma_write_pending_.size());
 #endif
 
   volatile union SimbricksProtoPcieD2H *msg = D2HAlloc();
@@ -148,7 +174,7 @@ void PcieBM::DmaDo(std::unique_ptr<DMAOp> dma_op) {
 
 #if DEBUG_PCIEBM
     uint8_t *tmp = static_cast<uint8_t *>(dma_op->data);
-    printf("main_time = %lu: pciebm: dma write data: \n", main_time_);
+    printf("main_time = %lu: pciebm: dma write data: \n", main_time_/1000000);
     for (size_t i = 0; i < dma_op->len; i++) {
       printf("%02X ", *tmp);
       tmp++;
@@ -171,12 +197,21 @@ void PcieBM::DmaDo(std::unique_ptr<DMAOp> dma_op) {
     SimbricksPcieIfD2HOutSend(&pcieif_, msg, SIMBRICKS_PROTO_PCIE_D2H_MSG_READ);
   }
 
-  auto inserted = dma_pending_.emplace(
+  if(dma_op->write){
+    auto inserted = dma_write_pending_.emplace(
       reinterpret_cast<uintptr_t>(dma_op.get()), std::move(dma_op));
-  assert(inserted.second &&
+    assert(inserted.second &&
          "PcieBM::DMADo() Inserting dma_op into dma_pending_ failed.");
-  std::cout << "pcieBM::DmaDo() TimePs()=" << TimePs() << " dma_pending.size()=" << dma_pending_.size()
-            << " dma_queue_.size()=" << dma_queue_.size() << "\n";
+    // std::cout << "pcieBM::DmaDo() TimePs()=" << TimePs() << " dma_write_pending.size()=" << dma_write_pending_.size()
+    //         << " dma_write_queue_.size()=" << dma_write_queue_.size() << "\n";
+  }else{
+    auto inserted = dma_read_pending_.emplace(
+      reinterpret_cast<uintptr_t>(dma_op.get()), std::move(dma_op));
+    assert(inserted.second &&
+         "PcieBM::DMADo() Inserting dma_op into dma_pending_ failed.");
+    // std::cout << "pcieBM::DmaDo() TimePs()=" << TimePs() << " dma_read_pending.size()=" << dma_read_pending_.size()
+            // << " dma_read_queue_.size()=" << dma_read_queue_.size() << "\n";
+  }
 }
 
 void PcieBM::MsiIssue(uint8_t vec) {
@@ -185,7 +220,7 @@ void PcieBM::MsiIssue(uint8_t vec) {
 
   volatile union SimbricksProtoPcieD2H *msg = D2HAlloc();
 #if DEBUG_PCIEBM
-  printf("main_time = %lu: pciebm: issue MSI interrupt vec %u\n", main_time_,
+  printf("main_time = %lu: pciebm: issue MSI interrupt vec %u\n", main_time_/1000000,
          vec);
 #endif
   volatile struct SimbricksProtoPcieD2HInterrupt *intr = &msg->interrupt;
@@ -202,7 +237,7 @@ void PcieBM::MsiXIssue(uint8_t vec) {
 
   volatile union SimbricksProtoPcieD2H *msg = D2HAlloc();
 #if DEBUG_PCIEBM
-  printf("main_time = %lu: pciebm: issue MSI-X interrupt vec %u\n", main_time_,
+  printf("main_time = %lu: pciebm: issue MSI-X interrupt vec %u\n", main_time_/1000000,
          vec);
 #endif
   volatile struct SimbricksProtoPcieD2HInterrupt *intr = &msg->interrupt;
@@ -219,7 +254,7 @@ void PcieBM::IntXIssue(bool level) {
 
   volatile union SimbricksProtoPcieD2H *msg = D2HAlloc();
 #if DEBUG_PCIEBM
-  printf("main_time = %lu: pciebm: set intx interrupt %u\n", main_time_, level);
+  printf("main_time = %lu: pciebm: set intx interrupt %u\n", main_time_/1000000, level);
 #endif
   volatile struct SimbricksProtoPcieD2HInterrupt *intr = &msg->interrupt;
   intr->vector = 0;
@@ -250,8 +285,8 @@ void PcieBM::H2DRead(volatile struct SimbricksProtoPcieH2DRead *read) {
   // NOLINTNEXTLINE(google-readability-casting)
   memcpy(&dbg_val, (const void *)readcomp->data,
          read->len <= 8 ? read->len : 8);
-  printf("main_time = %lu: pciebm: read(off=0x%lx, len=%u, val=0x%lx)\n",
-         main_time_, read->offset, read->len, dbg_val);
+  // printf("main_time = %lu: pciebm: read(off=0x%lx, len=%u, val=0x%lx)\n",
+  //        main_time_/1000000, read->offset, read->len, dbg_val);
 #endif
 
   SimbricksPcieIfD2HOutSend(&pcieif_, msg,
@@ -270,7 +305,7 @@ void PcieBM::H2DWrite(volatile struct SimbricksProtoPcieH2DWrite *write,
   printf(
       "main_time = %lu: pciebm: write(off=0x%lx, len=%u, val=0x%lx, "
       "posted=%u)\n",
-      main_time_, write->offset, write->len, dbg_val, posted);
+      main_time_/1000000, write->offset, write->len, dbg_val, posted);
 #endif
   // NOLINTNEXTLINE(google-readability-casting)
   RegWrite(write->bar, write->offset, (void *)write->data, write->len);
@@ -290,11 +325,11 @@ void PcieBM::H2DReadcomp(
   uintptr_t dma_op_ptr = static_cast<uintptr_t>(readcomp->req_id);
   // NOLINTNEXTLINE(performance-no-int-to-ptr)
   std::unique_ptr<DMAOp> dma_op =
-      std::move(dma_pending_.extract(dma_op_ptr).mapped());
+      std::move(dma_read_pending_.extract(dma_op_ptr).mapped());
 
 #if DEBUG_PCIEBM
   printf("main_time = %lu: pciebm: completed dma read op %p addr %lx len %zu\n",
-         main_time_, dma_op.get(), dma_op->dma_addr, dma_op->len);
+         main_time_/1000000, dma_op.get(), dma_op->dma_addr, dma_op->len);
 #endif
 
   memcpy(dma_op->data, const_cast<uint8_t *>(readcomp->data), dma_op->len);
@@ -306,12 +341,12 @@ void PcieBM::H2DWritecomp(
     volatile struct SimbricksProtoPcieH2DWritecomp *writecomp) {
   uintptr_t dma_op_ptr = static_cast<uintptr_t>(writecomp->req_id);
   std::unique_ptr<DMAOp> dma_op =
-      std::move(dma_pending_.extract(dma_op_ptr).mapped());
+      std::move(dma_write_pending_.extract(dma_op_ptr).mapped());
 
 #if DEBUG_PCIEBM
   printf(
       "main_time = %lu: pciebm: completed dma write op %p addr %lx len %zu\n",
-      main_time_, dma_op.get(), dma_op->dma_addr, dma_op->len);
+      main_time_/1000000, dma_op.get(), dma_op->dma_addr, dma_op->len);
 #endif
 
   DmaComplete(std::move(dma_op));

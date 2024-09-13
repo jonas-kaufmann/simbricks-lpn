@@ -17,7 +17,7 @@
 
 namespace lpn {
 
-const uint64_t LARGE = (1<<64)-1; 
+const uint64_t LARGE = (1<<63)-1; 
 extern uint64_t CLK;
 
 }
@@ -143,7 +143,7 @@ using Transition = struct Transition
     create_input_guard_vector_list();
     create_output_vector_list();
     
-    std::deque<int> consume_tokens;
+    std::deque<int> consume_tokens=std::deque<int>(0, 0);
     
     uint64_t delay_event=lpn::LARGE; //-1 if no event
     int disable = 0;

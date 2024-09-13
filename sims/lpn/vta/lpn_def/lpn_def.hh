@@ -90,12 +90,25 @@ void lpn_start(uint64_t addr, uint32_t insn_count, size_t insn_size) {
   assert(lpn_started == false);
   lpn_started = true;
   total_insn = insn_count;
-  for (int i = 0; i < insn_count; i++) {
-    NEW_TOKEN(token_start, new_token);
-    new_token->addr = addr + i * insn_size;
-    new_token->insn_size = insn_size;
-    pstart.pushToken(new_token);
-  }
+  // for (int i = 0; i < insn_count; i++) {
+  //   NEW_TOKEN(token_start, new_token);
+  //   new_token->addr = addr + i * insn_size;
+  //   new_token->insn_size = insn_size;
+  //   pstart.pushToken(new_token);
+  // }
+  // fetching 8 insn at a time
+  NEW_TOKEN(token_start, new_token);
+  new_token->addr = addr;
+  new_token->insn_size = insn_size*insn_count;
+  pstart.pushToken(new_token);
+
+  // for (int i = 0; i < insn_count; i=i+8) {
+  //   NEW_TOKEN(token_start, new_token);
+  //   int fetch_cnt = std::min(int(insn_count - i), 8);
+  //   new_token->addr = addr + i * insn_size;
+  //   new_token->insn_size = insn_size*fetch_cnt;
+  //   pstart.pushToken(new_token);
+  // }
 
   if (pload2compute.tokensLen() > 0) {
     std::cerr << "lpn_started with: pload2compute " << pload2compute.tokensLen() << std::endl;

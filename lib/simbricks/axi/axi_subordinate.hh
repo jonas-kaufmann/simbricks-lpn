@@ -259,7 +259,7 @@ void AXISubordinateRead<BytesAddr, BytesId, BytesData, MaxInFlight>::step(
   /* data stream complete */
   if (r_last_ && r_valid_ && r_ready_) {
 #ifdef AXI_R_DEBUG
-    std::cout << main_time_ << " AXI R: completed id=0x" << std::hex
+    std::cout << main_time_/1000000 << " AXI R: completed id=0x" << std::hex
               << cur_op_->id << std::dec << "\n";
 #endif
     id_op_map_.erase(cur_op_->id);
@@ -272,10 +272,10 @@ void AXISubordinateRead<BytesAddr, BytesId, BytesData, MaxInFlight>::step(
     r_id_tmp_ = 0;
   } else if (r_ready_ && r_valid_) {
     /* data handshake complete, issue the next data segment */
-#ifdef AXI_R_DEBUG
-    std::cout << main_time_ << " AXI R: data handshake id=0x" << std::hex
-              << cur_op_->id << std::dec << " off=" << cur_off_ << "\n";
-#endif
+// #ifdef AXI_R_DEBUG
+//     std::cout << main_time_/1000000 << " AXI R: data handshake id=0x" << std::hex
+//               << cur_op_->id << std::dec << " off=" << cur_off_ << "\n";
+// #endif
     send_next_data_segment();
   }
 
@@ -296,7 +296,7 @@ void AXISubordinateRead<BytesAddr, BytesId, BytesData, MaxInFlight>::step(
         res.second &&
         "AXISubordinateRead::step() id_op_map_.emplace() must be successful");
 #ifdef AXI_R_DEBUG
-    std::cout << main_time_ << " AXI R: new op addr=" << axi_op.addr
+    std::cout << main_time_/1000000 << " AXI R: new op addr=" << axi_op.addr
               << " len=" << axi_op.len << " id=0x" << std::hex << axi_op.id
               << std::dec << "\n";
 #endif
@@ -311,7 +311,7 @@ void AXISubordinateRead<BytesAddr, BytesId, BytesData, MaxInFlight>::step(
     AXIOperation &axi_op = pending_.front();
     if (axi_op.completed) {
 #ifdef AXI_R_DEBUG
-      std::cout << main_time_ << " AXI R: starting response id=0x" << std::hex
+      std::cout << main_time_/1000000 << " AXI R: starting response id=0x" << std::hex
                 << axi_op.id << std::dec << "\n";
 #endif
       cur_op_ = &axi_op;
@@ -338,7 +338,7 @@ template <size_t BytesAddr, size_t BytesId, size_t BytesData,
 void AXISubordinateRead<BytesAddr, BytesId, BytesData, MaxInFlight>::read_done(
     uint64_t simbricks_id, const uint8_t *data) {
 #ifdef AXI_R_DEBUG
-  std::cout << main_time_ << " AXI R: read_done id=0x" << std::hex
+  std::cout << main_time_/1000000 << " AXI R: read_done id=0x" << std::hex
             << simbricks_id << std::dec << "\n";
 #endif
   AXIOperation &axi_op = id_op_map_.at(simbricks_id);
@@ -374,7 +374,7 @@ void AXISubordinateWrite<BytesAddr, BytesId, BytesData, MaxInFlight>::step(
   /* write response handshake complete */
   if (b_valid_ && b_ready_) {
 #ifdef AXI_W_DEBUG
-    std::cout << main_time_
+    std::cout << main_time_/1000000
               << " AXI W: response handshake complete id=" << b_id_tmp_ << "\n";
 #endif
     b_valid_tmp_ = 0;
@@ -394,7 +394,7 @@ void AXISubordinateWrite<BytesAddr, BytesId, BytesData, MaxInFlight>::step(
     assert(aw_burst_ == 1 && "we currently only support INCR bursts");
     size_t len = step_size * (aw_len_ + 1);
 #ifdef AXI_W_DEBUG
-    std::cout << main_time_ << " AXI W: new request id=" << axi_id
+    std::cout << main_time_/1000000 << " AXI W: new request id=" << axi_id
               << " addr=" << addr << " len=" << len
               << " step_size=" << step_size << "\n";
 #endif
@@ -449,7 +449,7 @@ template <size_t BytesAddr, size_t BytesId, size_t BytesData,
 void AXISubordinateWrite<BytesAddr, BytesId, BytesData,
                          MaxInFlight>::write_done(uint64_t axi_id) {
 #ifdef AXI_W_DEBUG
-  std::cout << main_time_ << " AXI W completed write for id=" << axi_id << "\n";
+  std::cout << main_time_/1000000 << " AXI W completed write for id=" << axi_id << "\n";
 #endif
   num_pending_--;
 }

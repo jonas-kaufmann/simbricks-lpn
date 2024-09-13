@@ -20,6 +20,7 @@
 #include "sims/lpn/lpn_common/lpn_sim.hh"
 #include "sims/lpn/vta/include/lpn_req_map.hh"
 #include "sims/lpn/vta/include/vta/driver.h"
+#include "sims/lpn/vta/include/vta/io_gen.h"
 
 #include "sims/lpn/vta/lpn_def/lpn_def.hh"
 
@@ -28,11 +29,42 @@
 #define MASK6 0b111111
 
 #define VTA_DEBUG 0
-#define NUM_INSN 142
+
+uint64_t in_flight_write = 0;
+
+void KickSim(CtlVar& ctrl, int tag){
+  std::unique_lock lk(ctrl.mx);
+  if(ctrl.finished){
+    return;
+  }
+  // Verify if wake up is nee
+   if (ctrl.req_matcher[tag].isCompleted()) {
+    if (ctrl.blocked) {
+      // Notify to wake up
+      ctrl.blocked = false;
+      ctrl.cv.notify_one();
+    }
+    // Wait for func sim to process
+    ctrl.cv.wait(lk, [&] { return ctrl.blocked || ctrl.finished; });
+   }
+}
+
+void WaitForSim(CtlVar& ctrl){
+  std::unique_lock lk(ctrl.mx);
+  // Verify if wake up is needed
+  if (ctrl.blocked) {
+    // Notify to wake up
+    ctrl.blocked = false;
+    ctrl.cv.notify_one();
+  }
+  ctrl.cv.wait(lk, [&] { return ctrl.blocked || ctrl.finished; });
+}
 
 namespace {
 VTABm vta_sim{};
 VTADeviceHandle vta_func_device;
+VTAIOGenHandle vta_io_generator;
+std::thread io_generator_thread;
 std::thread func_thread;
 double start_time;
 std::vector<int> ids = {LOAD_INSN, LOAD_INP_ID, LOAD_WGT_ID, LOAD_ACC_ID, LOAD_UOP_ID, STORE_ID};
@@ -52,6 +84,9 @@ void sigusr2_handler(int dummy) {
 }  // namespace
 
 void VTABm::SetupIntro(struct SimbricksProtoPcieDevIntro &dev_intro) {
+
+  std::cout << "VTABm::SetupIntro" << std::endl;
+  
   dev_intro.pci_vendor_id = 0xdead;
   dev_intro.pci_device_id = 0xbeef;
   dev_intro.pci_class = 0x40;
@@ -120,23 +155,17 @@ void VTABm::RegWrite(uint8_t bar, uint64_t addr, const void *src,
     gettimeofday(&tp, NULL);
     start_time = double(tp.tv_sec) + tp.tv_usec / double(1000000);
 
+    std::cerr << "LAUNCHING IO GENERATOR THREAD " << std::endl;
+    vta_io_generator = VTAIOGenAlloc();
+    io_generator_thread = std::thread(VTAIOGenRun, vta_io_generator, insn_phy_addr, insn_count, 10000000);
+
+    WaitForSim(ctl_iogen);
+
     // Start func simulator thread
     std::cerr << "LAUNCHING FUNC SIM THREAD " << std::endl;
     vta_func_device = VTADeviceAlloc();
     func_thread = std::thread(VTADeviceRun, vta_func_device, insn_phy_addr, insn_count, 10000000);
-
-    // Wait for func sim to register first request
-    {
-      std::unique_lock lk(m_proc);
-      // Verify if wake up is needed
-      if (sim_blocked) {
-        // Notify to wake up
-        sim_blocked = false;
-        cv.notify_one();
-      }
-      // Wait for func sim to process
-      cv.wait(lk, [] { return sim_blocked || finished; });
-    }
+    WaitForSim(ctl_func);
 
     num_instr = insn_count;
     std::cerr << "LAUNCHING LPN with insns: " << num_instr << std::endl;
@@ -160,49 +189,36 @@ void VTABm::DmaComplete(std::unique_ptr<pciebm::DMAOp> dma_op) {
   UpdateClk(t_list, T_SIZE, TimePs());
   // handle response to DMA read request
   if (!dma_op->write) {
-
-    // Process read 
-    auto& req = frontReq(lpn_req_map[dma_op->tag]);
-    req->inflight = false;
-    memcpy(req->buffer + req->acquired_len, dma_op->data, dma_op->len);   // TODO verify arithmetic
-    req->acquired_len += dma_op->len;
-    // std::cerr << "DMA Complete: " << dma_op->tag << " " << req->acquired_len << " " << req->len << std::endl;
-
+    putData(dma_op->dma_addr, dma_op->len, dma_op->tag, dma_op->write, TimePs(), dma_op->data);
+    #ifdef VTA_DEBUG_DMA
+      std::cerr << "DMA Complete: " << dma_op->tag << " " << dma_op->dma_addr << " " << dma_op->len << std::endl;
+    #endif
   }
   // handle response to DMA write request
   else {
-
+    putData(dma_op->dma_addr, dma_op->len, dma_op->tag, dma_op->write, TimePs(), dma_op->data);
+    in_flight_write--;
+    #ifdef VTA_DEBUG_DMA
+      std::cerr << "DMA Write Complete: " << dma_op->tag << " " << dma_op->dma_addr << " " << dma_op->len << std::endl;
+    #endif
     // Process Write
-    auto& lpn_req = frontReq(lpn_req_map[dma_op->tag]);
-    lpn_req->inflight = false;
-    lpn_req->acquired_len += dma_op->len;
+    // lpn_req->acquired_len += dma_op->len;
   }
 
 
   // Run LPN to process received memory
   uint64_t next_ts = NextCommitTime(t_list, T_SIZE); 
 
-  auto& matcher = func_req_map[dma_op->tag];
-  // Notify funcsim
-  {
-    std::unique_lock lk(m_proc);
-    // Verify if wake up is needed
-    if (matcher.isCompleted()) {
-      if (sim_blocked) {
-        // Notify to wake up
-        sim_blocked = false;
-        cv.notify_one();
-      }
-      // Wait for func sim to process
-      cv.wait(lk, [] { return sim_blocked || finished; });
-    }
-  }
-
+  KickSim(ctl_iogen, dma_op->tag);
+  KickSim(ctl_func, dma_op->tag);
+  
   // Check for end condition
-  if (finished && lpn_finished() && next_ts == lpn::LARGE) {
+  if (in_flight_write == 0 && ctl_iogen.finished && ctl_func.finished && lpn_finished() && next_ts == lpn::LARGE) {
     std::cerr << "DMAcomplete: VTADeviceRun finished " << std::endl;
     func_thread.join();
+    io_generator_thread.join();
     VTADeviceFree(vta_func_device);
+    VTAIOGenFree(vta_io_generator);
     lpn_end();
     ClearReqQueues(ids);
 
@@ -234,21 +250,44 @@ void VTABm::DmaComplete(std::unique_ptr<pciebm::DMAOp> dma_op) {
       }
 
   // Issue requests enqueued by LPN
-  for (auto &kv : lpn_req_map) {
-    auto &req = frontReq(kv.second);
+  for (auto &kv : io_req_map) {
     if (kv.second.empty()) continue;
-    if (req->inflight == false) {
-      if (req->len == req->acquired_len) continue;
-      auto bytes_to_req = std::min<uint64_t>(req->len - req->acquired_len, DMA_BLOCK_SIZE);
-      if (req->rw == READ_REQ) {
-        auto dma_op = std::make_unique<VTADmaReadOp<DMA_BLOCK_SIZE>>(req->addr + req->acquired_len, bytes_to_req, req->id);
-        IssueDma(std::move(dma_op));
-      } else {
-        auto dma_op = std::make_unique<VTADmaWriteOp>(req->addr + req->acquired_len, bytes_to_req, req->id);
-        std::memcpy(dma_op->buffer, req->buffer, bytes_to_req);
-        IssueDma(std::move(dma_op));
+    for(auto &req : kv.second){
+      if (req->issue == 0 || req->issue == 2){
+        continue;
       }
-      req->inflight = true;
+      if (req->issue == 1){
+        if(req->rw == WRITE_REQ){
+          if (req->acquired_len != req->len){
+            continue;
+          }
+        }
+        req->issue = 2;
+        auto total_bytes = req->len;
+        auto sent_bytes = 0;
+        while(total_bytes > 0){
+          auto bytes_to_req = std::min<uint64_t>(total_bytes, DMA_BLOCK_SIZE);
+          if (req->rw == READ_REQ) {
+            auto dma_op = std::make_unique<VTADmaReadOp<DMA_BLOCK_SIZE>>(req->addr + sent_bytes, bytes_to_req, req->tag);
+            #ifdef VTA_DEBUG_DMA
+              std::cerr << "Issue DMA Read: " << req->tag << " " << req->addr + sent_bytes << " " << bytes_to_req << std::endl;
+            #endif
+            IssueDma(std::move(dma_op));
+          } else {
+            // reset the len to record for completion
+            req->acquired_len = 0;
+            auto dma_op = std::make_unique<VTADmaWriteOp>(req->addr + sent_bytes, bytes_to_req, req->tag);
+            std::memcpy(dma_op->buffer, req->buffer, bytes_to_req);
+            in_flight_write++;
+            #ifdef VTA_DEBUG_DMA
+              std::cerr << "Issue DMA Write: " << req->tag << " " << req->addr + sent_bytes << " " << bytes_to_req  << " is_write " << dma_op->write<< std::endl;
+            #endif
+            IssueDma(std::move(dma_op));
+          }
+          total_bytes -= bytes_to_req;
+          sent_bytes += bytes_to_req;
+        }
+      }
     }
   }
 }
@@ -257,7 +296,6 @@ void VTABm::ExecuteEvent(std::unique_ptr<pciebm::TimedEvent> evt) {
   // commit all transitions who can commit at evt.time
   // alternatively, commit transitions one by one.
   // UpdateClk(TimePs());‘
-  //std::cerr << "ExecuteEvent: " << evt->time << std::endl;
   uint64_t next_ts = lpn::LARGE;
   while(1){
     CommitAtTime(t_list, T_SIZE, evt->time);
@@ -290,10 +328,13 @@ void VTABm::ExecuteEvent(std::unique_ptr<pciebm::TimedEvent> evt) {
   // uint32_t insn_count = NUM_INSN;//Registers_.insn_count;
   // std::cerr << "insn_phy_addr: " << insn_phy_addr << " insn_count: " << insn_count << std::endl;
   // std::cerr << "Remaining insns " << num_instr << std::endl;
-  if (finished && lpn_finished() && next_ts == lpn::LARGE) {
+  if (in_flight_write == 0 && ctl_func.finished && ctl_iogen.finished && lpn_finished() && next_ts == lpn::LARGE) {
+      std::cerr << "Size of ctrl_func " <<  ctl_func.req_matcher[STORE_ID].reqs.size() << std::endl;
       std::cerr << "VTADeviceRun finished " << std::endl;
       func_thread.join();
+      io_generator_thread.join();
       VTADeviceFree(vta_func_device);
+      VTAIOGenFree(vta_io_generator);
       ClearReqQueues(ids);
       lpn_end();
 
@@ -307,24 +348,51 @@ void VTABm::ExecuteEvent(std::unique_ptr<pciebm::TimedEvent> evt) {
       return;
   }
 
-  // Issue requests enqueued by LPN
-  for (auto &kv : lpn_req_map) {
-    auto &req = frontReq(kv.second);
+  // Issue requests enqueued by IOGen
+  for (auto &kv : io_req_map) {
     if (kv.second.empty()) continue;
-    if (req->inflight == false) {
-      if (req->len == req->acquired_len) continue;
-      auto bytes_to_req = std::min<uint64_t>(req->len - req->acquired_len, DMA_BLOCK_SIZE);
-      if (req->rw == READ_REQ) {
-        auto dma_op = std::make_unique<VTADmaReadOp<DMA_BLOCK_SIZE>>(req->addr + req->acquired_len, bytes_to_req, req->id);
-        IssueDma(std::move(dma_op));
-      } else {
-        auto dma_op = std::make_unique<VTADmaWriteOp>(req->addr + req->acquired_len, bytes_to_req, req->id);
-        std::memcpy(dma_op->buffer, req->buffer, bytes_to_req);
-        IssueDma(std::move(dma_op));
+    for(auto &req : kv.second){
+      if (req->issue == 0 || req->issue == 2){
+        continue;
       }
-      req->inflight = true;
+      
+      if(req->rw == WRITE_REQ){
+          if (req->acquired_len != req->len){
+            continue;
+          }
+      }
+
+      if (req->issue == 1){
+        
+        req->issue = 2;
+        auto total_bytes = req->len;
+        auto sent_bytes = 0;
+        while(total_bytes > 0){
+          auto bytes_to_req = std::min<uint64_t>(total_bytes, DMA_BLOCK_SIZE);
+          if (req->rw == READ_REQ) {
+            auto dma_op = std::make_unique<VTADmaReadOp<DMA_BLOCK_SIZE>>(req->addr + sent_bytes, bytes_to_req, req->tag);
+            #ifdef VTA_DEBUG_DMA
+              std::cerr << "Issue DMA Read: " << req->tag << " " << req->addr + sent_bytes << " " << bytes_to_req << std::endl;
+            #endif
+            IssueDma(std::move(dma_op));
+          } else {
+            // reset the len to record for completion
+            req->acquired_len = 0;
+            auto dma_op = std::make_unique<VTADmaWriteOp>(req->addr + sent_bytes, bytes_to_req, req->tag);
+            std::memcpy(dma_op->buffer, req->buffer, bytes_to_req);
+            in_flight_write++;
+            #ifdef VTA_DEBUG_DMA
+              std::cerr << "Issue DMA Write: " << req->tag << " " << req->addr + sent_bytes << " " << bytes_to_req << std::endl;
+            #endif
+            IssueDma(std::move(dma_op));
+          }
+          total_bytes -= bytes_to_req;
+          sent_bytes += bytes_to_req;
+        }
+      }
     }
   }
+  
   // if (next_ts == lpn::LARGE && Registers_.status == 0x4 && !next_scheduled) {
   //   Registers_.status = 0x2;
   //   TransitionCountLog(t_list, T_SIZE);

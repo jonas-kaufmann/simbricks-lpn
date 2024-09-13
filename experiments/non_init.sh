@@ -1,0 +1,2 @@
+qemu-system-x86_64 -machine q35,accel=kvm -serial mon:stdio -cpu host -display none -nic user,model=virtio -kernel /home/jiacma/npc/simbricks-lpn/images/bzImage -drive file=/home/jiacma/npc/simbricks-lpn/experiments/out/vtatest-qk-lpn/1/hdcopy.host.0,if=ide,index=0,media=disk -drive file=/home/jiacma/npc/simbricks-lpn/experiments/out/vtatest-qk-lpn/1/cfg.host.0.tar,if=ide,index=1,media=disk,driver=raw -append "earlyprintk=ttyS0 console=ttyS0 root=/dev/sda1" -m 80G -smp 24
+c

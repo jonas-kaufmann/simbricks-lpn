@@ -35,14 +35,18 @@
 #include <type_traits>
 #include <unordered_map>
 
-#include "../include/vta/hw_spec.h"
-#include "sims/lpn/vta/include/lpn_req_map.hh"
+#include "sims/lpn/vta/include/vta/hw_spec.h"
 #include "sims/lpn/vta/include/vta/driver.h"
+#include "sims/lpn/vta/include/lpn_req_map.hh"
 #include "sims/lpn/vta/lpn_def/all_enum.hh"
 #include "sims/lpn/vta/lpn_def/places.hh"
+#include "sims/lpn/vta/include/vta/io_gen.h"
 
+// #define DEBUG_IO_GEN
+
+static int id_counter = 0;
 namespace vta {
-namespace sim {
+namespace iogen {
 
 /*! \brief debug flag for skipping computation */
 enum DebugFlagMask { kSkipExec = 1 };
@@ -154,45 +158,16 @@ static const int kElemBytes = (kBits * kLane + 7) / 8;
   // Execute the load instruction on this SRAM
   int Load(const VTAMemInsn* op, uint64_t* load_counter, bool skip_exec,
            uint64_t tag) {
-    load_counter[0] += (op->x_size * op->y_size) * kElemBytes;
-    if (skip_exec){
-      assert(0);
-      return 0;
-    }
-
-    DType* sram_ptr = data_ + op->sram_base;
     uint8_t* dram_ptr = reinterpret_cast<uint8_t*>(op->dram_base * kElemBytes);
-
-    uint64_t xtotal = op->x_size + op->x_pad_0 + op->x_pad_1;
-    uint32_t ytotal = op->y_size + op->y_pad_0 + op->y_pad_1;
-    uint64_t sram_end = op->sram_base + xtotal * ytotal;
-    CHECK_LE(sram_end, kMaxNumElem);
-    memset(sram_ptr, 0, kElemBytes * xtotal * op->y_pad_0);
-    sram_ptr += xtotal * op->y_pad_0;
-
+    id_counter++;
     for (uint32_t y = 0; y < op->y_size; ++y) {
       // Enqueue Request
-      memset(sram_ptr, 0, kElemBytes * op->x_pad_0);
-      sram_ptr += op->x_pad_0;
-
-      // insert DRAM req
-      #ifdef DEBUG_FUNC_SIM
-      std::cout << "Func-sim request: " << tag << " " << (uint64_t)dram_ptr << " " << kElemBytes * op->x_size << " " << kElemBytes << " "<<  op->x_size<< std::endl;
+      #ifdef DEBUG_IO_GEN
+      std::cout << "IO generator request: id "<< id_counter  << " tag"<< tag << " " << (uint64_t)dram_ptr << " size: " << kElemBytes * op->x_size << std::endl;
       #endif
-      getData(ctl_func, (uint64_t)dram_ptr, kElemBytes * op->x_size, tag, READ_REQ);
-      #ifdef DEBUG_FUNC_SIM
-      std::cout << "Func-sim request done" << std::endl;
-      #endif
-      auto front = ctl_func.req_matcher[tag].Consume(); 
-      // Adapt to code
-      auto buffer = reinterpret_cast<uint8_t*>(front->buffer);
-      memcpy(sram_ptr, buffer, kElemBytes * op->x_size);
-      sram_ptr += op->x_size;
-      memset(sram_ptr, 0, kElemBytes * op->x_pad_1);
-      sram_ptr += op->x_pad_1;
+      enqueueReq(id_counter, (uint64_t)dram_ptr, kElemBytes * op->x_size, tag, READ_REQ);
       dram_ptr += kElemBytes * op->x_stride;
     }
-    memset(sram_ptr, 0, kElemBytes * xtotal * op->y_pad_1);
 
     return 0;
   }
@@ -291,50 +266,17 @@ static const int kElemBytes = (kBits * kLane + 7) / 8;
     CHECK_EQ(op->y_pad_1, 0);
     int target_width = (target_bits * kLane + 7) / 8;
     uint64_t req_addr = op->dram_base * target_width;
-    BitPacker<kBits> src(data_ + op->sram_base);
-
     int cnt = 0;
+    id_counter++;
     for (uint32_t y = 0; y < op->y_size; ++y) {
       for (uint32_t x = 0; x < op->x_size; ++x) {
-        uint32_t sram_base = y * op->x_size + x;
         uint32_t dram_base = y * op->x_stride + x;
-        auto req = std::make_unique<MemReq>();
-        req->addr = req_addr+dram_base*kLane*target_bits/8;
-        req->tag = STORE_ID;
-        req->len = kLane*target_bits/8;
-        req->rw = WRITE_REQ;
-        req->buffer = calloc(req->len, 1);
-        BitPacker<target_bits> dst(req->buffer);
-        #ifdef DEBUG_FUNC_SIM
-          std::cerr << "Func-sim: store request " << req->addr << " " << req->len << "kLane" << kLane << std::endl;
+        #ifdef DEBUG_IO_GEN
+        std::cout << "IO generator request: id "<< id_counter  << " tag"<< STORE_ID << " " << (uint64_t)req_addr+dram_base*kLane*target_bits/8 << " " << kLane*target_bits/8 << std::endl;
         #endif
-        for (int i = 0; i < kLane; ++i) {
-          dst.SetSigned(i,
-                        src.GetSigned(sram_base * kLane + i));
-          cnt++;
-        }
-
-        // for(int i=0; i < req->len; i++){
-        //   std::cout << "store bytes " << ((uint8_t*)req->buffer)[i] << std::endl;
-        // }
-        #ifdef DEBUG_FUNC_SIM 
-          std::cout << "Func-sim: store putData " << req->addr << " " << req->len << std::endl;
-        #endif
-        putData(req->addr, req->len, STORE_ID, WRITE_REQ, 0, req->buffer);
+        enqueueReq(id_counter, req_addr+dram_base*kLane*target_bits/8, kLane*target_bits/8, STORE_ID, WRITE_REQ);
       }
     }
-
-    // std::cerr << "len mismatch? " << req->len << " " << cnt << std::endl;
-    // assert(("len mismatch %d %d\n", req->len, cnt) && req->len == cnt);
-    
-    // std::cerr << "enq store request " << req->addr << " " << req->len << "
-    // target_bits=" << target_bits << " target_width="<< target_width << "
-    // KLane=" << kLane<< std::endl;
-
-    // Produce Store request
-    // auto& matcher = perf_req_map[STORE_ID];
-    // matcher.Produce(std::move(req));
-
     return 0;
   }
 
@@ -411,29 +353,31 @@ class Device {
 
   int Run(vta_phy_addr_t insn_phy_addr, uint32_t insn_count,
           uint32_t wait_cycles) {
-    // Enqueue load request
-    std::cout << "Func sim registered" << std::endl;
-    // getData(ctl_func, insn_phy_addr, insn_count * sizeof(VTAGenericInsn), LOAD_INSN, READ_REQ);
-    // auto req = ctl_func.req_matcher[LOAD_INSN].Consume();
-
-    // uint32_t insn_holder = 0;
-    // std::cout << "Start Run insn" << std::endl;
 
     auto max_insn = 128;
     auto total_insn = insn_count;
     auto ites = (total_insn / max_insn);
     auto remain = (total_insn % max_insn);
 
+    for (int i = 0; i < ites; ++i) {
+      id_counter++;
+      enqueueReq(id_counter, insn_phy_addr+max_insn*sizeof(VTAGenericInsn)*i, max_insn * sizeof(VTAGenericInsn), LOAD_INSN, READ_REQ);
+    }
+    
+    if (remain > 0) {
+      id_counter++;
+      enqueueReq(id_counter, insn_phy_addr+max_insn*sizeof(VTAGenericInsn)*ites, remain * sizeof(VTAGenericInsn), LOAD_INSN, READ_REQ);
+    }
 
     for (int i = 0; i < ites; ++i) {
-      getData(ctl_func, insn_phy_addr+max_insn*sizeof(VTAGenericInsn)*i, max_insn * sizeof(VTAGenericInsn), LOAD_INSN, READ_REQ);
-      auto req = ctl_func.req_matcher[LOAD_INSN].Consume();
+      getData(ctl_iogen, insn_phy_addr+max_insn*sizeof(VTAGenericInsn)*i, max_insn * sizeof(VTAGenericInsn), LOAD_INSN, READ_REQ);
+      auto req = ctl_iogen.req_matcher[LOAD_INSN].Consume();
       uint32_t insn_holder = 0;
-      // std::cout << "Funsim : Start Run insn" << std::endl;
+      // std::cout << "Start Run insn" << std::endl;
       while (1) {
         VTAGenericInsn* insn = reinterpret_cast<VTAGenericInsn*>(req->buffer)+insn_holder;
-        vta::sim::Device::Run_Insn(insn, reinterpret_cast<void*>(this));
-        // std::cout << "Funsim Finished Instruction: "  << insn_holder << std::endl;
+        vta::iogen::Device::Run_Insn(insn, reinterpret_cast<void*>(this));
+        // std::cout << "IOGen Finished Instruction: "  << insn_holder << std::endl;
         insn_holder++;
         if (insn_holder == max_insn) {
           break;
@@ -442,14 +386,14 @@ class Device {
     }
 
     if (remain > 0) {
-      getData(ctl_func, insn_phy_addr+max_insn*sizeof(VTAGenericInsn)*ites, remain * sizeof(VTAGenericInsn), LOAD_INSN, READ_REQ);
-      auto req = ctl_func.req_matcher[LOAD_INSN].Consume();
+      getData(ctl_iogen, insn_phy_addr+max_insn*sizeof(VTAGenericInsn)*ites, remain * sizeof(VTAGenericInsn), LOAD_INSN, READ_REQ);
+      auto req = ctl_iogen.req_matcher[LOAD_INSN].Consume();
       uint32_t insn_holder = 0;
-      // std::cout << "Funsim : Start Run insn" << std::endl;
+      // std::cout << "Start Run insn" << std::endl;
       while (1) {
         VTAGenericInsn* insn = reinterpret_cast<VTAGenericInsn*>(req->buffer)+insn_holder;
-        vta::sim::Device::Run_Insn(insn, reinterpret_cast<void*>(this));
-        // std::cout << "Funsim Finished Instruction: "  << insn_holder << std::endl;
+        vta::iogen::Device::Run_Insn(insn, reinterpret_cast<void*>(this));
+        // std::cout << "IOGen Finished Instruction: "  << insn_holder << std::endl;
         insn_holder++;
         if (insn_holder == remain) {
           break;
@@ -457,13 +401,14 @@ class Device {
       }
     }
 
-    // Notify wrapper of end
+    // enqueueReq(id_counter, insn_phy_addr, insn_count * sizeof(VTAGenericInsn), LOAD_INSN, READ_REQ);
+
     {
-      std::unique_lock<std::mutex> lk(ctl_func.mx);
-      std::cout << "Funcsim Set finish to True!" << std::endl;
-      ctl_func.finished = true; 
-      ctl_func.blocked = false;
-      ctl_func.cv.notify_one();
+      std::unique_lock<std::mutex> lk(ctl_iogen.mx);
+      std::cout << "IOGen Set finish to True!" << std::endl;
+      ctl_iogen.finished = true; 
+      ctl_iogen.blocked = false;
+      ctl_iogen.cv.notify_one();
     }
 
     return 0;
@@ -471,6 +416,7 @@ class Device {
 
  private:
   static int Run_Insn(const VTAGenericInsn* insn, void* dev) {
+    // std::cout << "Run_Insn" << std::endl;
     Device* device = reinterpret_cast<Device*>(dev);
     const VTAMemInsn* mem = reinterpret_cast<const VTAMemInsn*>(insn);
     const VTAGemInsn* gem = reinterpret_cast<const VTAGemInsn*>(insn);
@@ -478,41 +424,33 @@ class Device {
     int ans = 0;
     switch (mem->opcode) {
       case VTA_OPCODE_LOAD:
-      #ifdef DEBUG_FUNC_SIM
-        std::cout << "opcode  " << "VTA OPCODE LOAD" << std::endl;
-      #endif
+        // std::cout << "opcode  " << "VTA OPCODE LOAD" << std::endl;
         ans = device->RunLoad(mem);
         return ans;
         break;
       case VTA_OPCODE_STORE:
-        #ifdef DEBUG_FUNC_SIM
-        std::cout << "opcode  " << "VTA OPCODE STORE" << std::endl;
-        #endif
+        // std::cout << "opcode  " << "VTA OPCODE STORE" << std::endl;
         ans = device->RunStore(mem);
         return ans;
         break;
       case VTA_OPCODE_GEMM:
-        #ifdef DEBUG_FUNC_SIM
-        std::cout << "opcode  " << "VTA OPCODE GEMM" << std::endl;
-        #endif
-        ans = device->RunGEMM(gem);
+        // std::cout << "opcode  " << "VTA OPCODE GEMM" << std::endl;
+        // ans = device->RunGEMM(gem);
         return ans;
         break;
       case VTA_OPCODE_ALU:
-        #ifdef DEBUG_FUNC_SIM
-        std::cout << "opcode  " << "VTA OPCODE ALU" << std::endl;
-        #endif
-        ans = device->RunALU(alu);
+        // std::cout << "opcode  " << "VTA OPCODE ALU" << std::endl;
+        // ans = device->RunALU(alu);
         return ans;
         break;
       case VTA_OPCODE_FINISH:
         ++(device->finish_counter_);
-        #ifdef DEBUG_FUNC_SIM
+        #ifdef DEBUG_IO_GEN
         std::cerr << "opcode  " << "VTA OPCODE FINISH" << std::endl;
         #endif
         break;
       default: {
-        // std::cerr << "Unknown op_code" << mem->opcode;
+        std::cerr << "Unknown op_code" << mem->opcode;
       }
     }
     return 0;
@@ -523,41 +461,33 @@ class Device {
     if (op->x_size == 0)
       return 0;
     if (op->memory_type == VTA_MEM_ID_INP) {
-      #ifdef DEBUG_FUNC_SIM
-      std::cout << "memory_type " << "VTA_MEM_ID_INP" << std::endl;
-      #endif
-      return inp_.Load(op, &(prof_->inp_load_nbytes), prof_->SkipExec(),
+      // std::cout << "memory_type " << "VTA_MEM_ID_INP" << std::endl;
+      inp_.Load(op, &(prof_->inp_load_nbytes), prof_->SkipExec(),
                        LOAD_INP_ID);
     } else if (op->memory_type == VTA_MEM_ID_WGT) {
-      #ifdef DEBUG_FUNC_SIM
-      std::cout << "memory_type " << "VTA_MEM_ID_WGT" << std::endl;
-      #endif
-      return wgt_.Load(op, &(prof_->wgt_load_nbytes), prof_->SkipExec(),
+      // std::cout << "memory_type " << "VTA_MEM_ID_WGT" << std::endl;
+      wgt_.Load(op, NULL, NULL,
                        LOAD_WGT_ID);
     } else if (op->memory_type == VTA_MEM_ID_ACC) {
-      #ifdef DEBUG_FUNC_SIM
-      std::cout << "memory_type " << "VTA_MEM_ID_ACC" << std::endl;
-      #endif
-      return acc_.Load(op, &(prof_->acc_load_nbytes), prof_->SkipExec(),
-                       LOAD_ACC_ID);
+      // std::cout << "memory_type " << "VTA_MEM_ID_ACC" << std::endl;
+      acc_.Load(op, NULL, NULL, LOAD_ACC_ID);
     } else if (op->memory_type == VTA_MEM_ID_UOP) {
-      #ifdef DEBUG_FUNC_SIM
-      std::cout << "memory_type " << "VTA_MEM_ID_UOP" << std::endl;
-      #endif
+      // std::cout << "memory_type " << "VTA_MEM_ID_UOP" << std::endl;
       //  always load in uop, since uop is stateful
       //  subsequent non-debug mode exec can depend on it.
-      return uop_.Load(op, &(prof_->uop_load_nbytes), false, LOAD_UOP_ID);
+      uop_.Load(op, NULL, NULL, LOAD_UOP_ID);
     } else if (op->memory_type == VTA_MEM_ID_ACC_8BIT) {
       // std::cout << "memory_type " << "VTA_MEM_ID_ACC_8BIT" << std::endl;
-      return acc_.Load_int8(op, &(prof_->acc_load_nbytes), prof_->SkipExec(),
+      acc_.Load_int8(op, NULL, NULL,
                             LOAD_ACC_ID);
     } else {
       std::cerr << "Unknown memory_type=" << op->memory_type;
-      return 0;
     }
+    return 0;
   }
 
   int RunStore(const VTAMemInsn* op) {
+    
     if (op->x_size == 0)
       return 0;
     if (op->memory_type == VTA_MEM_ID_OUT) {
@@ -714,21 +644,21 @@ class Device {
   SRAM<VTA_UOP_WIDTH, 1, VTA_UOP_BUFF_DEPTH> uop_;
 };
 
-}  // namespace sim
+}  // namespace iogen
 }  // namespace vta
 
-VTADeviceHandle VTADeviceAlloc() {
-  return new vta::sim::Device();
+VTAIOGenHandle VTAIOGenAlloc() {
+  return new vta::iogen::Device();
 }
 
-void VTADeviceFree(VTADeviceHandle handle) {
-  ctl_func.finished = false;
-  ctl_func.blocked = false;
-  delete static_cast<vta::sim::Device*>(handle);
+void VTAIOGenFree(VTAIOGenHandle handle) {
+  ctl_iogen.finished = false;
+  ctl_iogen.blocked = false;
+  delete static_cast<vta::iogen::Device*>(handle);
 }
 
-int VTADeviceRun(VTADeviceHandle handle, vta_phy_addr_t insn_phy_addr,
+int VTAIOGenRun(VTAIOGenHandle handle, vta_phy_addr_t insn_phy_addr,
                  uint32_t insn_count, uint32_t wait_cycles) {
-  return static_cast<vta::sim::Device*>(handle)->Run(insn_phy_addr, insn_count,
+  return static_cast<vta::iogen::Device*>(handle)->Run(insn_phy_addr, insn_count,
                                                      wait_cycles);
 }

@@ -971,10 +971,23 @@ class VTAMatMul(AppConfig):
                     '/home/jiacma/npc/simbricks-lpn/tvm/vta/tutorials/optimize/matrix_multiply_opt.py',
                     'rb'
                 ),
+            # 'dummy_sync.cc':
+            #     open(
+            #         '/home/jiacma/npc/simbricks-lpn/dummy_sync.cc',
+            #         'rb'
+            #     ),
         }
 
     def prepare_pre_cp(self) -> tp.List[str]:
         return [
+            # f'cd /root',
+            # f'ls',
+            # f'cp AcceleratorVM/scx/scx_simple.bpf.multiq.c scx/scheds/c/scx_simple.bpf.c',
+            # f'meson compile -vC scx/build',
+            # f'meson install -C scx/build',
+            # f'make -C AcceleratorVM all',
+            # f'ln -s AcceleratorVM/zurvan /usr/bin/zurvan',
+            # f'cd -',
             f'export GEM5_CP={int(self.gem5_cp)}',
             f'export VTA_DEVICE={self.pci_device}',
             'export VTA_RPC_HOST=127.0.0.1',
@@ -986,6 +999,9 @@ class VTAMatMul(AppConfig):
             # the RPC server takes quite long to start, ofte more than 5 s
             'sleep 5',
             'python vta/tutorials/optimize/matrix_multiply_opt.py'
+            # 'cp /tmp/guest/dummy_sync.cc ./',
+            # 'g++ -o dummy dummy_sync.cc',
+            # './dummy'
         ]
 
     def run_cmds(self, node):
@@ -1057,7 +1073,7 @@ class VtaDeployClassification(AppConfig):
         return {
             'deploy_classification.py':
                 open(
-                    '/home/jonask/Repos/tvm-simbricks/vta/tutorials/frontend/deploy_classification.py',
+                    '/home/jiacma/npc/tvm/vta/tutorials/frontend/deploy_classification.py',
                     'rb'
                 ),
             'synset.txt':

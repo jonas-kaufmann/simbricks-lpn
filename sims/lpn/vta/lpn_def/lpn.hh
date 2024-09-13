@@ -14,47 +14,98 @@
 #include "sims/lpn/vta/src/parse_tokens.hh"
 
 namespace lpnvta {
-    uint64_t CYCLEPERIOD = 1'000'000 / 2'000; // 2 GHz
+    // in pico seconds
+    // uint64_t CYCLEPERIOD = 1'000'000 / 1'000; // 1 GHz
+    // uint64_t CYCLEPERIOD = 1'000'000 / 500; // 500Mhz
+    uint64_t CYCLEPERIOD = 1'000'000 / 2000; // 2Ghz
 }
-#define InsertMemOp(tag, rw_req, insn_ptr)                                    \
-    auto& front = frontReq(lpn_req_map[tag]);                                   \
-    if (lpn_req_map[tag].empty()) {                                             \
-        std::vector<uint64_t> addrList;                                           \
-        std::vector<uint32_t> sizeList;                                           \
-        GetMemOpAddr(tag, (uint64_t)insn_ptr, addrList, sizeList);                 \
-        int num_req = addrList.size();                                             \
-        int empty_mem_op = 1;                                                     \
-        for (int i=0; i < num_req; i++){                                           \
-            auto dram_addr = addrList[i];                                          \
-            auto req_len = sizeList[i];                                            \
-            if (req_len == 0) {                                                    \
-                continue;                                                          \
-            }                                                                      \
-            empty_mem_op = 0;                                                      \
-            auto new_req = std::make_unique<LpnReq>();                             \
-            new_req->id = tag;                                                     \
-            new_req->rw = rw_req;                                                  \
-            new_req->len = req_len;                                                \
-            new_req->addr = dram_addr;                                             \
-            new_req->buffer = calloc(req_len, 1);                                  \
-            enqueueReq(lpn_req_map[tag], std::move(new_req));                      \
-        }                                                                          \
-        if (empty_mem_op==1) return 0;                                             \
-    } else {                                                                     \
-        while(1){                                                                  \
-            auto& front = frontReq(lpn_req_map[tag]);                                    \
-            if(lpn_req_map[tag].empty()){                                          \
-                num_instr--;                                                       \
-                return 0;                                                          \
-            }                                                                      \
-            if (front->acquired_len == front->len) {                               \
-                func_req_map[tag].Produce(dequeueReq(lpn_req_map[tag]));           \
-            } else {                                                               \
-                break;                                                             \
-            }                                                                      \
-        }                                                                          \
-    }                                                                            \
-    return lpn::LARGE;
+
+
+int outstanding = 0;
+int acc_bytes[10] = {0};
+int end_times[10] = {0};
+int start_times[10] = {0};
+
+
+int issue_mem_op(int tag){
+    auto& reqs = io_req_map[tag];
+    int batch_id = -1;
+    auto it = reqs.begin();
+    
+    int finish_round = 0;
+    int finish_id = 0;
+
+    while (it != reqs.end()) {
+      auto req = it->get();
+      if(req->issue == 3){
+        acc_bytes[tag] += req->len;
+        if(start_times[tag] == 0){
+            start_times[tag] = req->complete_ts;
+            end_times[tag] = req->complete_ts;
+        }else{
+            end_times[tag] = req->complete_ts;
+
+        }
+        // finish_id = req->id;
+        // std::cout << "issue_mem_op tag finished: " << req->tag  << " addr " << req->addr << " len " << req->len << std::endl;
+        finish_round = 1;
+        it = reqs.erase(it);
+        continue;
+      }
+
+      // wait 
+      if(req->issue == 1 || req->issue == 2){
+        return 1;
+      }
+      
+      // next unissue is the next instruction
+    //   if(finish_round == 1 && req->issue == 0 && finish_id != req->id){
+      if(finish_round == 1 && req->issue == 0){
+        return 0;
+      }
+
+      // 
+      if(req->issue == 0){
+        if(batch_id == -1){
+          batch_id = req->id;
+        }
+        if(batch_id != req->id){
+          return 1;
+        }
+        // std::cout << "issue_mem_op set to issue tag:" << req->tag  << " addr:" << req->addr << " len:" << req->len << std::endl;
+        req->issue = 1;
+        // finish_round = 0;
+        // break;
+        // I only issue one request
+      }
+      it++;
+    }
+    if(finish_round == 1){
+        return 0;
+    }
+    return 1;
+    // for(auto& req : req_queue){
+    //     // to avoid issue already issued request
+    //     if(req->acquired_len == req->len){
+            
+    //         continue;
+    //     }
+
+    //     if(batch_id == -1 && req->issue == 0){
+    //         batch_id = req->id;
+    //     }else{
+    //         if(batch_id != -1 && batch_id != req->id){
+    //             break;
+    //         }
+    //     }
+    //     if(batch_id != -1 && req->issue == 0){
+    //         std::cout << "issue_mem_op tag: " << req->tag  << " id " << batch_id << std::endl;
+    //         req->issue = 1;
+    //     }
+
+    // }
+}
+
 
 #define NEW_REQ(id_, rw_, len_) \
     auto new_req = std::make_unique<LpnReq>(); \
@@ -91,17 +142,17 @@ std::function<int()> take_dep_pop_prev(Place<T>& dependent_place) {
 
 // template<typename T>
 // void log_fields(Place<T>& dependent_place) {
-//     std::cerr << dependent_place.id << std::endl;
-//     std::cerr << "opcode: " << dependent_place.tokens[0]->opcode << std::endl;
-//     std::cerr << "subopcode: " << dependent_place.tokens[0]->subopcode << std::endl;
-//     std::cerr << "tstype: " << dependent_place.tokens[0]->tstype << std::endl;
-//     std::cerr << "xsize: " << dependent_place.tokens[0]->xsize << std::endl;
-//     std::cerr << "ysize: " << dependent_place.tokens[0]->ysize << std::endl;
-//     std::cerr << "uop_begin: " << dependent_place.tokens[0]->uop_begin << std::endl;
-//     std::cerr << "uop_end: " << dependent_place.tokens[0]->uop_end << std::endl;
-//     std::cerr << "lp_0: " << dependent_place.tokens[0]->lp_0 << std::endl;
-//     std::cerr << "lp_1: " << dependent_place.tokens[0]->lp_1 << std::endl;
-//     std::cerr << "use_alu_imm: " << dependent_place.tokens[0]->use_alu_imm << std::endl;
+//     //std::cerr << dependent_place.id << std::endl;
+//     //std::cerr << "opcode: " << dependent_place.tokens[0]->opcode << std::endl;
+//     //std::cerr << "subopcode: " << dependent_place.tokens[0]->subopcode << std::endl;
+//     //std::cerr << "tstype: " << dependent_place.tokens[0]->tstype << std::endl;
+//     //std::cerr << "xsize: " << dependent_place.tokens[0]->xsize << std::endl;
+//     //std::cerr << "ysize: " << dependent_place.tokens[0]->ysize << std::endl;
+//     //std::cerr << "uop_begin: " << dependent_place.tokens[0]->uop_begin << std::endl;
+//     //std::cerr << "uop_end: " << dependent_place.tokens[0]->uop_end << std::endl;
+//     //std::cerr << "lp_0: " << dependent_place.tokens[0]->lp_0 << std::endl;
+//     //std::cerr << "lp_1: " << dependent_place.tokens[0]->lp_1 << std::endl;
+//     //std::cerr << "use_alu_imm: " << dependent_place.tokens[0]->use_alu_imm << std::endl;
 // };
 
 template<typename T>
@@ -134,17 +185,19 @@ std::function<int()> take_some_token(int number) {
 std::function<void(BasePlace*)> output_insn_read_cmd() {
     auto output_token = [&](BasePlace* output_place) -> void {
         auto total_insn = plaunch.tokens[0]->total_insn;
-        auto max_insn = 8;
+        auto max_insn = 128;
         auto ites = (total_insn / max_insn);
         auto remain = (total_insn % max_insn);
         for (int i = 0; i < ites; ++i) {
             NEW_TOKEN(token_class_insn_count, new_token);
             new_token->insn_count = max_insn;
+            //std::cerr << "output_insn_read_cmd with length " << new_token->insn_count << std::endl;
             output_place->pushToken(new_token);
         }
         if (remain > 0) {
             NEW_TOKEN(token_class_insn_count, new_token);
             new_token->insn_count = remain;
+            //std::cerr << "output_insn_read_cmd with length " << new_token->insn_count << std::endl;
             output_place->pushToken(new_token);
         }
     };
@@ -206,6 +259,17 @@ std::function<bool()> empty_guard() {
     };
     return guard;
 };
+
+std::function<bool()> psDrain_is_empty() {
+    auto guard = [&]() -> bool {
+        if(psDrain.tokensLen() == 0){
+            return true;
+        }
+        return false;
+    };
+    return guard;
+};
+
 template<typename T>
 std::function<bool()> take_opcode_token(Place<T>& dependent_place, int opcode) {
     auto guard = [&, opcode]() -> bool {
@@ -228,89 +292,69 @@ std::function<bool()> take_subopcode_token(Place<T>& dependent_place, int subopc
     };
     return guard;
 };
+
 std::function<uint64_t()> delay_t9() {
     auto delay = [&]() -> uint64_t {
-        return lpnvta::CYCLEPERIOD*(21 + (2 * psReadCmd.tokens[0]->insn_count));
+        int ret = issue_mem_op(LOAD_INSN);
+        if(ret == 0){
+            int tag = LOAD_INSN;
+            uint64_t delay = lpnvta::CYCLEPERIOD*acc_bytes[tag]/8;
+            uint64_t elapsed_time = end_times[tag] - start_times[tag];  
+                //std::cerr << "tag: " << tag << " orig_delay:" << delay << " elapsed_time:" << elapsed_time << std::endl;
+
+            if(delay > elapsed_time){
+                delay = delay - elapsed_time;
+            }else{
+                delay = 0;
+            }
+            end_times[tag] = 0;
+            start_times[tag] = 0;
+            acc_bytes[tag] = 0;
+            // the wire is 32bit, 4bytes
+            return delay;
+        }
+        return  lpn::LARGE;
+        // return lpnvta::CYCLEPERIOD*(21 + (2 * psReadCmd.tokens[0]->insn_count));
     };
     return delay;
 };
 
-static int nth_store = 0;
 template<typename T>
 std::function<uint64_t()> delay_store(Place<T>& dependent_place) {
     auto delay = [&]() -> uint64_t {
-        uint64_t insn_ptr = (uint64_t)&(dependent_place.tokens[0]->insn);
-        std::vector<uint64_t> addrList;
-        std::vector<uint32_t> sizeList;
-        GetMemOpAddr(STORE_ID, (uint64_t)insn_ptr, addrList, sizeList);
-        if (addrList.empty()){
+        auto xsize = dependent_place.tokens[0]->xsize;
+        auto ysize = dependent_place.tokens[0]->ysize;
+        auto subopcode = dependent_place.tokens[0]->subopcode;
+        if(subopcode == (int)ALL_ENUM::SYNC){
             num_instr--;
-            return 0;
+            return lpnvta::CYCLEPERIOD*2;
         }
-        auto& matcher = perf_req_map[STORE_ID];
 
-        // If lpn_req_map is not all filled
-        // std::cerr << "Two sizes: " << lpn_req_map[STORE_ID].size() << " addList:" << addrList.size() <<
-        // " n_th store " << nth_store << std::endl;
+        int ret = issue_mem_op(STORE_ID);
+        if(ret == 0){
+            int tag = STORE_ID;
+            uint64_t delay = lpnvta::CYCLEPERIOD*acc_bytes[tag]/8;
+            uint64_t elapsed_time = end_times[tag] - start_times[tag]; 
+                //std::cerr << "tag: " << tag << " orig_delay:" << delay << " elapsed_time:" << elapsed_time << std::endl;
 
-        if (nth_store < addrList.size()) {
-            for (int i=nth_store; i < addrList.size(); i++) {
-                auto dram_addr = addrList[i];
-                auto req_len = sizeList[i];
-                if (req_len == 0) {
-                    nth_store += 1;
-                    continue;
-                }
-                if (!matcher.isValid()) {
-                    // Register a new Store request
-                    auto req = std::make_unique<LpnReq>();
-                    req->id = STORE_ID;
-                    req->rw = WRITE_REQ;
-                    req->len = req_len;
-                    req->addr = dram_addr;
-                    req->buffer = calloc(req_len, 1);
-                    matcher.Register(std::move(req));
-                }
-                // Try to consume and enqueue dma request
-                if (matcher.isCompleted()) {
-                    auto req = matcher.Consume();
-                    auto r = std::make_unique<LpnReq>();  // not clean but type problem
-                    r->id = STORE_ID;
-                    r->rw = WRITE_REQ;
-                    r->len = req->len;
-                    r->addr = req->addr;
-                    r->buffer = calloc(req->len, 1);
-                    memcpy(r->buffer, req->buffer, req->len);
-                    enqueueReq(lpn_req_map[STORE_ID], std::move(r));
-                    nth_store += 1;
-                }else{
-                    return lpn::LARGE;
-                }
+            if(delay > elapsed_time){
+                delay = delay - elapsed_time;
+            }else{
+                delay = 0;
             }
-            assert(lpn_req_map[STORE_ID].size() == addrList.size());
-            return lpn::LARGE;
-        } else {
-            // std::cerr << "store_id is full, flesh out" << std::endl;
-            while(1){
-                auto& front = frontReq(lpn_req_map[STORE_ID]);
-                if(lpn_req_map[STORE_ID].empty()){
-                    // std::cerr << "store insn finished, reset nth_store" << std::endl;  
-                    nth_store = 0;
-                    num_instr--;   
-                    // std::cerr << "should be this one " << num_instr << std::endl;                                                    
-                    return 0;                                                          
-                }                                                                      
-                if (front->acquired_len == front->len) {   
-                    dequeueReq(lpn_req_map[STORE_ID]);                            
-                } else {                                                               
-                    break;                                                             
-                }               
-            }
+            end_times[tag] = 0;
+            start_times[tag] = 0;
+            acc_bytes[tag] = 0;
+            // the wire is 32bit, 4bytes
+            return delay;
         }
-        return lpn::LARGE;
+        return  lpn::LARGE;
+        // return lpnvta::CYCLEPERIOD*((27 * (xsize /(double) 8)) * ysize);
     };
     return delay;
 };
+
+
 std::function<uint64_t()> con_delay(uint64_t constant) {
     auto delay = [&, constant]() -> uint64_t {
         return lpnvta::CYCLEPERIOD*constant;
@@ -329,7 +373,21 @@ std::function<int()> take_start_token(Place<T>& dependent_place) {
 template<typename T>
 std::function<void(BasePlace*)> output_launch_token(Place<T>& dependent_place) {
     auto output_token = [&](BasePlace* output_place) -> void {
-        output_place->pushToken(MakeLaunchToken());
+        NEW_TOKEN(token_class_total_insn, launch_token);
+        launch_token->total_insn = pstart.tokens[0]->insn_size/16;
+        output_place->pushToken(launch_token);
+        //std::cerr << "output_launch_token with length " << launch_token->total_insn << std::endl;
+        return;
+
+        auto& reqs = ctl_nb_lpn.req_matcher[LOAD_INSN].reqs;
+        auto& front = reqs.front();
+        assert(front->acquired_len == front->len);
+        //std::cerr << "output_launch_token with length " << front->len << std::endl;
+        auto insn_len = front->len/16;
+        for (int i = 0; i < insn_len; i++) {
+            output_place->pushToken(MakeLaunchToken());
+        }
+        // output_place->pushToken(MakeLaunchToken());
     };
     return output_token;
 };
@@ -337,36 +395,39 @@ std::function<void(BasePlace*)> output_launch_token(Place<T>& dependent_place) {
 template<typename T>
 std::function<void(BasePlace*)> output_pnum_insn(Place<T>& dependent_place) {
     auto output_token = [&](BasePlace* output_place) -> void {
-        output_place->pushToken(MakeNumInsnToken(&(dependent_place.tokens[0]->insn)));
+        auto num = psReadCmd.tokens[0]->insn_count;
+        auto& reqs = ctl_nb_lpn.req_matcher[LOAD_INSN].reqs;
+        auto& front = reqs.front();
+        assert(front->acquired_len == front->len);
+        auto insn_len = front->len/16;
+        // //std::cerr << "output_pnum_insn with length " << insn_len << " num:" << num << std::endl;
+        assert(insn_len == num);
+        for (int i = 0; i < insn_len; i++) {
+            sixteen_byte_insn insn;
+            insn.data1_ = *((uint64_t*)front->buffer+i*2);
+            insn.data2_ = *((uint64_t*)front->buffer+i*2+1);
+            output_place->pushToken(MakeNumInsnToken(&insn));
+        }
+        reqs.erase(reqs.begin());
+        // dequeueReq(io_req_map[LOAD_INSN]);
     };
     return output_token;
 };
+
 
 template<typename T>
 std::function<uint64_t()> delay_start(Place<T>& dependent_place) {
     auto delay = [&]() -> uint64_t {
         auto dram_addr = dependent_place.tokens[0]->addr;
         auto req_len = dependent_place.tokens[0]->insn_size; 
-        auto tag = LOAD_INSN;
-        auto& front = frontReq(lpn_req_map[LOAD_INSN]);
-        if(lpn_req_map[tag].empty()){
-            auto new_req = std::make_unique<LpnReq>();
-            new_req->id = tag;
-            new_req->rw = READ_REQ;
-            new_req->len = req_len;
-            new_req->addr = dram_addr;
-            new_req->buffer = calloc(req_len, 1);
-            enqueueReq(lpn_req_map[tag], std::move(new_req));
-            return lpn::LARGE;
-        } else {
-            if (front->acquired_len == front->len ) {
-                dependent_place.tokens[0]->insn.data1_ = *(uint64_t*)front->buffer; 
-                dependent_place.tokens[0]->insn.data2_ = *((uint64_t*)front->buffer+1);
-                func_req_map[tag].Produce(dequeueReq(lpn_req_map[tag]));
-                return 0;
-            }
-        }
-        return lpn::LARGE;
+        return 0;
+
+        // int ret = issue_mem_op(LOAD_INSN);
+        // //std::cerr << "delay_start ret value  " << ret << std::endl;
+        // if(ret == 0){
+        //     return 0;
+        // }
+        // return  lpn::LARGE;
     };
     return delay;
 }
@@ -395,7 +456,27 @@ std::function<uint64_t()> delay_load(Place<T>& dependent_place) {
           tag = LOAD_WGT_ID;
           rw_req = READ_REQ;
         }
-        InsertMemOp(tag, rw_req, insn_ptr);        
+        int ret = issue_mem_op(tag);
+        if(ret == 0){
+
+            uint64_t delay = lpnvta::CYCLEPERIOD*acc_bytes[tag]/8;
+            uint64_t elapsed_time = end_times[tag] - start_times[tag]; 
+                //std::cerr << "tag: " << tag << " orig_delay:" << delay << " elapsed_time:" << elapsed_time << std::endl;
+
+            if(delay > elapsed_time){
+                delay = delay - elapsed_time;
+            }else{
+                delay = 0;
+            }
+            end_times[tag] = 0;
+            start_times[tag] = 0;
+            acc_bytes[tag] = 0;
+
+            
+            // the wire is 32bit, 4bytes
+            return delay;
+        }
+        return  lpn::LARGE;
     };
     return delay;
 };
@@ -410,11 +491,50 @@ uint64_t delay_gemm(Place<T>& dependent_place) {
 };
 template<typename T>
 uint64_t delay_loadUop(Place<T>& dependent_place) {
-    InsertMemOp(LOAD_UOP_ID, READ_REQ, &(dependent_place.tokens[0]->insn));
+    // //std::cerr << "delay_loadUop" << std::endl;
+    int ret = issue_mem_op(LOAD_UOP_ID);
+
+    if(ret == 0){
+        int tag = LOAD_UOP_ID;
+        uint64_t delay = lpnvta::CYCLEPERIOD*acc_bytes[tag]/8;
+        uint64_t elapsed_time = end_times[tag] - start_times[tag];  
+            //std::cerr << "tag: " << tag << " orig_delay:" << delay << " elapsed_time:" << elapsed_time << std::endl;
+
+        if(delay > elapsed_time){
+            delay = delay - elapsed_time;
+        }else{
+            delay = 0;
+        }
+        end_times[tag] = 0;
+        start_times[tag] = 0;
+        acc_bytes[tag] = 0;
+        
+        // the wire is 32bit, 4bytes
+        return delay;
+    }
+    return  lpn::LARGE;
 };
 template<typename T>
 uint64_t delay_loadAcc(Place<T>& dependent_place) {
-    InsertMemOp(LOAD_ACC_ID, READ_REQ, &(dependent_place.tokens[0]->insn));
+    int ret = issue_mem_op(LOAD_ACC_ID);
+    if(ret == 0){
+        int tag = LOAD_ACC_ID;
+        uint64_t delay = lpnvta::CYCLEPERIOD*acc_bytes[tag]/8;
+        uint64_t elapsed_time = end_times[tag] - start_times[tag];  
+            //std::cerr << "tag: " << tag << " orig_delay:" << delay << " elapsed_time:" << elapsed_time << std::endl;
+
+        if(delay > elapsed_time){
+            delay = delay - elapsed_time;
+        }else{
+            delay = 0;
+        }
+        end_times[tag] = 0;
+        start_times[tag] = 0;
+        acc_bytes[tag] = 0;
+        // the wire is 32bit, 4bytes
+        return delay;
+    }
+   return  lpn::LARGE;
 };
 
 template<typename T>
