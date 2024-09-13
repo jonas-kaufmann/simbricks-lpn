@@ -31,9 +31,10 @@ NOPAXOS_IMAGE := $(d)output-nopaxos/nopaxos
 MTCP_IMAGE := $(d)output-mtcp/mtcp
 TAS_IMAGE := $(d)output-tas/tas
 VTA_IMAGE := $(d)output-vta/vta
+VTA_DETECT_IMAGE := $(d)output-vta_detect/vta_detect
 COMPRESSED_IMAGES ?= false
 
-IMAGES := $(BASE_IMAGE) $(NOPAXOS_IMAGE) $(MEMCACHED_IMAGE) $(VTA_IMAGE)
+IMAGES := $(BASE_IMAGE) $(NOPAXOS_IMAGE) $(MEMCACHED_IMAGE) $(VTA_IMAGE) $(VTA_DETECT_IMAGE)
 RAW_IMAGES := $(addsuffix .raw,$(IMAGES))
 
 IMAGES_MIN := $(BASE_IMAGE)
@@ -130,6 +131,13 @@ $(VTA_IMAGE): $(packer) $(QEMU) $(BASE_IMAGE) \
 	    $(COMPRESSED_IMAGES)
 	touch $@
 
+$(VTA_DETECT_IMAGE): $(packer) $(QEMU) $(VTA_IMAGE) \
+    $(addprefix $(d), extended-image.pkr.hcl scripts/install-vta_detect.sh \
+      scripts/cleanup.sh)
+	rm -rf $(dir $@)
+	cd $(img_dir) && ./packer-wrap.sh vta vta_detect extended-image.pkr.hcl \
+	    $(COMPRESSED_IMAGES)
+	touch $@
 
 $(packer):
 	wget -O $(img_dir)packer_$(PACKER_VERSION)_linux_amd64.zip \
