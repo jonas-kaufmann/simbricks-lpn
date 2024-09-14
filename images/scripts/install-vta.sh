@@ -1,39 +1,59 @@
 #!/bin/bash
 set -eux
 
-git clone https://<yourname>:<yourkey>@github.com/dslab-epfl/AcceleratorVM.git
+# apt-get update
+# apt-get -y install \
+#     build-essential \
+#     g++ \
+#     gcc \
+#     git \
+#     make \
+#     build-essential \
+#     cmake \
+#     libedit-dev \
+#     libxml2-dev \
+#     llvm-dev \
+#     strace \
+#     libquadmath0 \
+#     unzip \
+#     libcapstone-dev \
+#     libbpf-dev \
 
-apt-get update
-apt-get -y install \
-    build-essential \
-    g++ \
-    gcc \
-    git \
-    make \
-    python-is-python3 \
-    python3 \
-    python3-cloudpickle \
-    python3-decorator \
-    python3-dev \
-    python3-numpy \
-    python3-psutil \
-    python3-pytest \
-    python3-scipy \
-    python3-setuptools \
-    python3-typing-extensions \
-    python3-tornado \
-    python3-willow \
-    python3-pip \
-    libtinfo-dev \
-    zlib1g-dev \
-    build-essential \
-    cmake \
-    libedit-dev \
-    libxml2-dev \
-    llvm-dev \
-    strace \
-    libquadmath0 \
-    unzip
+# apt-get -y install \
+#     build-essential \
+#     g++ \
+#     gcc \
+#     g++-9 \
+#     gcc-9 \
+#     git \
+#     make \
+#     python-is-python3 \
+#     python3 \
+#     python3-cloudpickle \
+#     python3-decorator \
+#     python3-dev \
+#     python3-numpy \
+#     python3-psutil \
+#     python3-pytest \
+#     python3-scipy \
+#     python3-setuptools \
+#     python3-typing-extensions \
+#     python3-tornado \
+#     python3-willow \
+#     python3-pip \
+#     libtinfo-dev \
+#     zlib1g-dev \
+#     build-essential \
+#     cmake \
+#     libedit-dev \
+#     libxml2-dev \
+#     llvm-dev \
+#     strace \
+#     libquadmath0 \
+#     unzip \
+#     libcapstone-dev \
+#     libbpf-dev \
+#     dhcpcd5
 
 # install mxnet and clone the model
 # pip install mxnet
@@ -51,24 +71,30 @@ export VTA_HW_PATH=$TVM_HOME/3rdparty/vta-hw
 
 
 
-mkdir -p /root
-# git clone --recursive --branch lpn https://github.com/jonas-kaufmann/tvm-simbricks.git /root/tvm
-git clone --recursive https://github.com/MJChku/tvm-simbricks /root/tvm
-cd /root/tvm
-cp 3rdparty/vta-hw/config/simbricks_pci_sample.json 3rdparty/vta-hw/config/vta_config.json
-mkdir build
-cp cmake/config.cmake build
-cd build
-cmake ..
-make -j`nproc`
-make -j`nproc` runtime vta
-
+# mkdir -p /root
+# git clone --recursive https://github.com/MJChku/tvm-simbricks /root/tvm
+# cd /root/tvm
+# cp 3rdparty/vta-hw/config/simbricks_pci_sample.json 3rdparty/vta-hw/config/vta_config.json
+# mkdir build
+# cp cmake/config.cmake build
+# cd build
+# cmake ..
+# make -j`nproc`
+# make -j`nproc` runtime vta
 
 cd /root
-git clone https://github.com/tlc-pack/tophub.git
-cd tophub
-mkdir /root/.tvm
-mv tophub /root/.tvm/
+git clone  --recursive --branch test-simbricks https://<your name>:<your key>@github.com/dslab-epfl/AcceleratorVM.git
+cd /root/AcceleratorVM
+cp scx/scx_simple.c external/scx/scheds/c/scx_simple.c
+cp scx/scx_simple.bpf.multiq.c external/scx/scheds/c/scx_simple.bpf.c
+make all
+ln -s /root/AcceleratorVM/zurvan /usr/bin/zurvan
 
-mkdir /root/.vta_cache
-touch /root/.vta_cache/simbricks-pci-dummy.bit
+# cd /root
+# git clone https://github.com/tlc-pack/tophub.git
+# cd tophub
+# mkdir /root/.tvm
+# mv tophub /root/.tvm/
+
+# mkdir /root/.vta_cache
+# touch /root/.vta_cache/simbricks-pci-dummy.bit

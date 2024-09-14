@@ -914,6 +914,10 @@ class LinuxVTANode(NodeConfig):
                 'export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:'
                 '/sbin:/bin'
             ),
+            'mount -t bpf none /sys/fs/bpf',
+            'mount | grep /sys/fs/bpf',
+            'mkdir -p /dev/shm',
+            'mount -t tmpfs -o rw,nosuid,nodev,noexec,relatime,size=50M tmpfs /dev/shm',
             'export HOME=/root',
             'cd /root/tvm/',
             'ip link set lo up',
@@ -971,32 +975,36 @@ class VTAMatMul(AppConfig):
                     '/home/jiacma/npc/simbricks-lpn/tvm/vta/tutorials/optimize/matrix_multiply_opt.py',
                     'rb'
                 ),
-            # 'dummy_sync.cc':
-            #     open(
-            #         '/home/jiacma/npc/simbricks-lpn/dummy_sync.cc',
-            #         'rb'
-            #     ),
+            'dummy_sync.cc':
+                open(
+                    '/home/jiacma/npc/simbricks-lpn/dummy_sync.cc',
+                    'rb'
+                ),
+            
+            'scx_simple.bpf.multiq.c':
+                open(
+                    '/home/jiacma/npc/simbricks-lpn/AcceleratorVM/scx/scx_simple.bpf.multiq.c',
+                    'rb'
+                ),
+            'scx_simple.c':
+                open(
+                    '/home/jiacma/npc/simbricks-lpn/AcceleratorVM/scx/scx_simple.c',
+                    'rb'
+                ),
         }
 
     def prepare_pre_cp(self) -> tp.List[str]:
         return [
-            # f'cd /root',
-            # f'ls',
-            # f'cp AcceleratorVM/scx/scx_simple.bpf.multiq.c scx/scheds/c/scx_simple.bpf.c',
-            # f'meson compile -vC scx/build',
-            # f'meson install -C scx/build',
-            # f'make -C AcceleratorVM all',
-            # f'ln -s AcceleratorVM/zurvan /usr/bin/zurvan',
-            # f'cd -',
+            f'cd /root/AcceleratorVM',
+            f'g++-9 -Iinclude -Isims test/multithread/t1.cpp -o t1_test.out -lpthread',
+            f' ./zurvan ./t1_test.out',
+            f'cd -',
             f'export GEM5_CP={int(self.gem5_cp)}',
             f'export VTA_DEVICE={self.pci_device}',
             'export VTA_RPC_HOST=127.0.0.1',
             'export VTA_RPC_PORT=9091',
-            # this only starts the RPC server, the driver for VTA is only loaded
-            # once VTA is actually invoked
             '/usr/bin/python3 -m vta.exec.rpc_server --host=${VTA_RPC_HOST} --port=${VTA_RPC_PORT} &',
             'cp /tmp/guest/matrix_multiply_opt.py vta/tutorials/optimize/matrix_multiply_opt.py',
-            # the RPC server takes quite long to start, ofte more than 5 s
             'sleep 5',
             'python vta/tutorials/optimize/matrix_multiply_opt.py'
             # 'cp /tmp/guest/dummy_sync.cc ./',

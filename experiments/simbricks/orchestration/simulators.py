@@ -428,7 +428,6 @@ class QemuHost(HostSim):
             else:
                 cmd += ',sync=off'
             cmd += ' '
-
         # qemu does not currently support net direct ports
         assert len(self.net_directs) == 0
         # qemu does not currently support mem device ports
