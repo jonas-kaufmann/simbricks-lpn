@@ -15,4 +15,4 @@
 	url = https://github.com/jonas-kaufmann/core_jpeg_decoder.git
 [submodule "sims/external/vta"]
 	path = sims/external/vta
-	url = https://github.com/simbricks/tvm-vta-simbricks.git
+	url = https://github.com/jonas-kaufmann/tvm-vta-simbricks.git
