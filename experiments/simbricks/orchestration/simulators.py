@@ -404,8 +404,6 @@ class QemuHost(HostSim):
             f'-m {self.node_config.memory} -smp {self.node_config.cores} '
         )
 
-        print("mycmd", cmd)
-
         if self.sync:
             unit = self.cpu_freq[-3:]
             if unit.lower() == 'ghz':
@@ -417,10 +415,10 @@ class QemuHost(HostSim):
             num = float(self.cpu_freq[:-3])
             shift = base - int(math.ceil(math.log(num, 2)))
 
-            cmd += f' -icount shift={shift},sleep=off '
+            # cmd += f' -icount shift={shift},sleep=off '
 
         for dev in self.pcidevs:
-            cmd += f'-device simbricks-pci,socket={env.dev_pci_path(dev)}'
+            cmd += f'-device scx-pci,socket={env.dev_pci_path(dev)}'
             if self.sync:
                 cmd += ',sync=on'
                 cmd += f',pci-latency={self.pci_latency}'
@@ -432,6 +430,7 @@ class QemuHost(HostSim):
         assert len(self.net_directs) == 0
         # qemu does not currently support mem device ports
         assert len(self.memdevs) == 0
+        print("mycmd", cmd)
         return cmd
 
 

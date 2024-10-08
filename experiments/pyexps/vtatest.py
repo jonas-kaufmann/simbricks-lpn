@@ -28,7 +28,6 @@ experiments = []
 
 for h in ['qk', 'qt', 'gk', 'gt']:
     for vta_var in ['lpn', 'rtl']:
-        print("running")
         e = exp.Experiment('vtatest-' + h + '-' + vta_var)
         e.checkpoint = False
 
@@ -46,7 +45,9 @@ for h in ['qk', 'qt', 'gk', 'gt']:
             host = sim.Gem5Host(node_config)
             host.sync = True
         elif h == 'qk':
+            node_config.cores = 4
             host = sim.QemuHost(node_config)
+            host.sync = True
         elif h == 'qt':
             host = sim.QemuHost(node_config)
             host.sync = True
@@ -64,6 +65,6 @@ for h in ['qk', 'qt', 'gk', 'gt']:
         host.add_pcidev(vta)
 
         vta.pci_latency = vta.sync_period = host.pci_latency = \
-            host.sync_period = 400
+            host.sync_period = 1000
 
         experiments.append(e)

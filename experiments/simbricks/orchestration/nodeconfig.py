@@ -975,15 +975,20 @@ class VTAMatMul(AppConfig):
                     '/home/jiacma/npc/simbricks-lpn/tvm/vta/tutorials/optimize/matrix_multiply_opt.py',
                     'rb'
                 ),
-            'dummy_sync.cc':
+            'print.cpp':
                 open(
-                    '/home/jiacma/npc/simbricks-lpn/dummy_sync.cc',
+                    '/home/kejr/qemu/shared/Accel-Simulation/print.cpp',
                     'rb'
                 ),
-            
+            'dummy_sync.cc':
+                open(
+                    '/home/kejr/qemu/shared/Accel-Simulation/dummy_sync.cc',
+                    'rb'
+                ),
             'scx_simple.bpf.multiq.c':
                 open(
-                    '/home/jiacma/npc/simbricks-lpn/AcceleratorVM/scx/scx_simple.bpf.multiq.c',
+                    '/home/kejr/qemu/shared/scx/scheds/c/scx_simple.bpf.c',
+                    # '/home/jiacma/npc/simbricks-lpn/AcceleratorVM/scx/scx_simple.bpf.multiq.c',
                     'rb'
                 ),
             'scx_simple.c':
@@ -995,21 +1000,33 @@ class VTAMatMul(AppConfig):
 
     def prepare_pre_cp(self) -> tp.List[str]:
         return [
+            'mkdir -p /sys/kernel/debug',
+            'mount -t debugfs none /sys/kernel/debug',
             f'cd /root/AcceleratorVM',
             f'g++-9 -Iinclude -Isims test/multithread/t1.cpp -o t1_test.out -lpthread',
-            f' ./zurvan ./t1_test.out',
+            # f' ./zurvan ./t1_test.out',
             f'cd -',
             f'export GEM5_CP={int(self.gem5_cp)}',
             f'export VTA_DEVICE={self.pci_device}',
             'export VTA_RPC_HOST=127.0.0.1',
             'export VTA_RPC_PORT=9091',
-            '/usr/bin/python3 -m vta.exec.rpc_server --host=${VTA_RPC_HOST} --port=${VTA_RPC_PORT} &',
-            'cp /tmp/guest/matrix_multiply_opt.py vta/tutorials/optimize/matrix_multiply_opt.py',
-            'sleep 5',
-            'python vta/tutorials/optimize/matrix_multiply_opt.py'
-            # 'cp /tmp/guest/dummy_sync.cc ./',
-            # 'g++ -o dummy dummy_sync.cc',
-            # './dummy'
+            '/usr/bin/python3 -m vta.exec.rpc_server --host=${VTA_RPC_HOST} --port=${VTA_RPC_PORT} &',            'ls',
+            'cp /tmp/guest/matrix_multiply_opt.py /root/tvm/vta/tutorials/optimize/matrix_multiply_opt.py',
+            'cd /root/AcceleratorVM',
+            # f'./t1_test.out',
+            
+            'cp /tmp/guest/dummy_sync.cc ./',
+            'g++ dummy_sync.cc -o dummy_sync -lbpf',
+            'cp /tmp/guest/print.cpp ./',
+            'g++ print.cpp -o print',
+
+            'cat /sys/kernel/debug/tracing/trace_pipe &',
+            # 'demsg -w &',
+            './dummy_sync &',
+
+            './zurvan ./print',
+            # './zurvan python /root/tvm/vta/tutorials/optimize/matrix_multiply_opt.py',
+            # './zurvan ls',
         ]
 
     def run_cmds(self, node):
