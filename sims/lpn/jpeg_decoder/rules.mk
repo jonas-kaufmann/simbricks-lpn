@@ -26,19 +26,24 @@ include mk/subdir_pre.mk
 bin_jpeg_decoder_bm := $(d)jpeg_decoder_bm
 
 bm_objs := $(addprefix $(d),jpeg_decoder_bm.o)
+bm_objs += $(addprefix $(d), src/func_sim.o)
+bm_objs += $(addprefix $(d), src/lpn_req_map.o)
+bm_objs += $(addprefix $(d), lpn_def/places.o)
+
+$(bin_jpeg_decoder_bm): CPPFLAGS += -O3 -g
 
 # $(bin_jpeg_decoder_bm): CPPFLAGS += -fsanitize=address -g
 # $(bin_jpeg_decoder_bm): LDFLAGS += -fsanitize=address -static-libasan
 $(bin_jpeg_decoder_bm): $(bm_objs) $(lib_pciebm) $(lib_pcie) $(lib_base) \
-	$(lib_lpnsim)
+	$(lib_lpnsim)  -lpthread
 
 # workload driver
 bin_workload_driver := $(d)jpeg_decoder_workload_driver
 workload_driver_objs := $(bin_workload_driver).o $(d)vfio.o
 
 # statically linked binary that can run under any Linux image
-$(workload_driver_objs): CPPFLAGS += -static
-$(bin_workload_driver): LDFLAGS += -static
+$(workload_driver_objs): CPPFLAGS += -static -g 
+$(bin_workload_driver): LDFLAGS += -static -g
 
 $(bin_workload_driver): $(workload_driver_objs)
 

@@ -9,22 +9,63 @@
 #include <cstring>
 #include <iostream>
 #include <memory>
+#include <thread>
 
 #include <simbricks/pciebm/pciebm.hh>
 
 #include "../lpn_common/lpn_sim.hh"
+#include "lpn_common.bkp.sbk/lpn_sim.hh"
 #include "lpn_def/lpn_def.hh"
-#include "lpn_setup/driver.hpp"
 #include "sims/lpn/jpeg_decoder/include/jpeg_decoder_regs.hh"
 #include "sims/lpn/lpn_common/place_transition.hh"
+#include "sims/lpn/jpeg_decoder/include/lpn_req_map.hh"
+#include "sims/lpn/jpeg_decoder/include/driver.hh"
+
 
 #define FREQ_MHZ 150000000
 #define FREQ_MHZ_NORMALIZED 150
 #define MASK5 0b11111
 #define MASK6 0b111111
 
+#define EXTRA_BYTES 6*64*4
+void KickSim(CtlVar& ctrl, int tag){
+  std::unique_lock lk(ctrl.mx);
+  if(ctrl.finished){
+    return;
+  }
+  // Verify if wake up is nee
+   if (ctrl.req_matcher[tag].isCompleted()) {
+    if (ctrl.blocked) {
+      // Notify to wake up
+      ctrl.blocked = false;
+      ctrl.cv.notify_one();
+    }
+    // Wait for func sim to process
+    ctrl.cv.wait(lk, [&] { return ctrl.blocked || ctrl.finished; });
+   }
+}
+
+void WaitForSim(CtlVar& ctrl){
+  std::unique_lock lk(ctrl.mx);
+  // Verify if wake up is needed
+  if (ctrl.blocked) {
+    // Notify to wake up
+    ctrl.blocked = false;
+    ctrl.cv.notify_one();
+  }
+  ctrl.cv.wait(lk, [&] { return ctrl.blocked || ctrl.finished; });
+}
+
+void EndSim(CtlVar& ctrl){
+  std::unique_lock lk(ctrl.mx);
+  ctrl.blocked = false;
+  ctrl.cv.notify_one();
+}
+
 namespace {
 JpegDecoderBm jpeg_decoder{};
+std::thread func_thread;
+std::vector<int> ids = {0};
 
 void sigint_handler(int dummy) {
   jpeg_decoder.SIGINTHandler();
@@ -53,6 +94,7 @@ void JpegDecoderBm::SetupIntro(struct SimbricksProtoPcieDevIntro &dev_intro) {
   dev_intro.bars[0].flags = 0;
 
   // setup LPN initial state
+  setupReqQueues(ids);
   lpn_init();
 }
 
@@ -90,11 +132,26 @@ void JpegDecoderBm::RegWrite(uint8_t bar, uint64_t addr, const void *src,
   // start decoding image
   if (!old_is_busy && !(old_ctrl & CTRL_REG_START_BIT) &&
       Registers_.ctrl & CTRL_REG_START_BIT) {
+    std::cout << "DMA write completed; bytes written: " << BytesWritten_ << std::endl;
+    std::cout << " p8 token len " <<  p8.tokensLen() << std::endl;
+    ctl_func.Reset();
     // Issue DMA for fetching the image data
     Registers_.isBusy = 1;
     BytesRead_ =
         std::min<uint64_t>(Registers_.ctrl & CTRL_REG_LEN_MASK, DMA_BLOCK_SIZE);
     uint64_t src_addr = Registers_.src;
+    uint64_t dst_addr = Registers_.dst;
+    
+    std::cerr << "jpeg decoder: src_addr=" << src_addr << " dst_addr=" << dst_addr << "\n";
+
+    // enqueue the one and only request for the whole image
+    enqueueReq(0, src_addr, (Registers_.ctrl & CTRL_REG_LEN_MASK) + EXTRA_BYTES, 0, READ_REQ);
+    std::cerr << "jpeg decoder next" << "\n";
+
+   
+    func_thread = std::thread(jpeg_decode_funcsim, src_addr, Registers_.ctrl & CTRL_REG_LEN_MASK, dst_addr, TimePs());
+    WaitForSim(ctl_func);
+
     auto dma_op = std::make_unique<JpegDecoderDmaReadOp<DMA_BLOCK_SIZE>>(
         src_addr, BytesRead_);
 
@@ -110,9 +167,14 @@ void JpegDecoderBm::RegWrite(uint8_t bar, uint64_t addr, const void *src,
 
 void JpegDecoderBm::DmaComplete(std::unique_ptr<pciebm::DMAOp> dma_op) {
   // handle response to DMA read request
+  UpdateClk(t_list, T_SIZE, TimePs());
   if (!dma_op->write) {
+    // std::cout << "DMA read completed" << " len: " << dma_op->len << std::endl;
+    putData(dma_op->dma_addr, dma_op->len, dma_op->tag, READ_REQ, TimePs(), dma_op->data);
+
+    KickSim(ctl_func, dma_op->tag);
+
     // produce tokens for the LPN
-    UpdateLpnState(static_cast<uint8_t *>(dma_op->data), dma_op->len, TimePs());
     // std::cout << "update lpn finishes" << std::endl;
     uint64_t next_ts = NextCommitTime(t_list, T_SIZE);
 
@@ -134,11 +196,12 @@ void JpegDecoderBm::DmaComplete(std::unique_ptr<pciebm::DMAOp> dma_op) {
     }
 
     // issue DMA request for next block
-    uint32_t total_bytes = Registers_.ctrl & CTRL_REG_LEN_MASK;
+    uint32_t total_bytes = (Registers_.ctrl & CTRL_REG_LEN_MASK) + EXTRA_BYTES; 
     if (BytesRead_ < total_bytes) {
       uint64_t len =
           std::min<uint64_t>(total_bytes - BytesRead_, DMA_BLOCK_SIZE);
 
+      // std::cout << "issue DMA read for next block" << " len: " << len << " total: " << total_bytes << std::endl;
       // reuse dma_op
       dma_op->dma_addr = Registers_.src + BytesRead_;
       dma_op->len = len;
@@ -151,11 +214,19 @@ void JpegDecoderBm::DmaComplete(std::unique_ptr<pciebm::DMAOp> dma_op) {
   // DMA write completed
   else {
     BytesWritten_ += dma_op->len;
+    std::cout << "DMA write completed; bytes written: " << BytesWritten_ <<  " total:" << GetSizeOfRGB() * 2 << std::endl;
     if (BytesWritten_ == GetSizeOfRGB() * 2) {
+      std::cout << "Everything finished ; bytes written: " << BytesWritten_ << std::endl;
+      EndSim(ctl_func);
+      func_thread.join();
+      ctl_func.exited = true;
+
       // let host know that decoding completed
       Registers_.isBusy = 0;
       BytesWritten_ = 0;
+      // reset lpn state
       Reset();
+      std::cout << "Everything finished done " << std::endl;
     }
   }
 }
@@ -194,9 +265,13 @@ void JpegDecoderBm::ExecuteEvent(std::unique_ptr<pciebm::TimedEvent> evt) {
     EventSchedule(std::move(evt));
   }
 
+  if(ctl_func.exited == true){
+    return;
+  }
   size_t rgb_cur_len = GetCurRGBOffset();
   if (rgb_cur_len > 0) {
     size_t rgb_consumed_len = GetConsumedRGBOffset();
+    std::cout << "rgb_cur_len: " << rgb_cur_len << " rgb_consumed_len: " << rgb_consumed_len << std::endl;
     if (rgb_cur_len > rgb_consumed_len) {
       size_t pixels_to_write = rgb_cur_len - rgb_consumed_len;
       assert(pixels_to_write % DMA_BLOCK_SIZE == 0);
@@ -222,6 +297,7 @@ void JpegDecoderBm::ExecuteEvent(std::unique_ptr<pciebm::TimedEvent> evt) {
             reinterpret_cast<uint8_t *>(decoded_img_data.get()) + i;
         std::memcpy(dma_op->buffer, img_data_src, DMA_BLOCK_SIZE);
         IssueDma(std::move(dma_op));
+        std::cout << "issue DMA write for decoded image" << " len: " << DMA_BLOCK_SIZE << std::endl;
       }
       UpdateConsumedRGBOffset(rgb_cur_len);
     }

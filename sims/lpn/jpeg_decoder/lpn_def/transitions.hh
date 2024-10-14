@@ -26,8 +26,17 @@ Transition t5 = {
     .delay_f = conDelay(65),
     .p_input = {&p1, &p2, &p3},
     .pi_w = {take1Token, take1Token, take1Token},
-    .p_output = {&pdone, &p6},
+    .p_output = {&pbefore_done, &p6},
     .po_w = {passEmptyToken(),passEmptyToken()},
+};
+
+Transition tfinal = {
+    .id = "final",
+    .delay_f = conDelay(0),
+    .p_input = {&pbefore_done},
+    .pi_w = {take4Token},
+    .p_output = {&pdone},
+    .po_w = {passEmptyToken()},
 };
 
 Transition t4 = {

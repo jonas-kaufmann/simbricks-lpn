@@ -9,8 +9,8 @@
 
 #include "jpeg_bit_buffer.h"
 #include "jpeg_dht.h"
+
 #include "common.h"
-#include "../../lpn_helper/rollback_buf.hh"
 
 //-----------------------------------------------------------------------------
 // jpeg_mcu_block:
@@ -18,9 +18,6 @@
 class jpeg_mcu_block
 {
 public:
-    size_t global_buf_idx = 0;
-    uint8_t* global_buf = NULL;
-
     jpeg_mcu_block(jpeg_bit_buffer *bit_buf, jpeg_dht *dht)
     {
         m_bit_buffer = bit_buf;
@@ -28,10 +25,7 @@ public:
         reset();
     }
 
-    void reset(void) { 
-        global_buf_idx = 0;
-        global_buf = NULL;
-    }
+    void reset(void) { }
 
     //-----------------------------------------------------------------------------
     // decode: Run huffman entropy decoder on input stream, expand to DC + upto 
@@ -44,14 +38,8 @@ public:
         for (int coeff=0;coeff<64;coeff++)
         {
             // Read 32-bit word
-            // have to check here
-            if (m_bit_buffer->marker_detected){
-                CHECK_ENOUGH_BUF(m_bit_buffer->global_buf_idx + m_bit_buffer->m_rd_offset/8+3, m_bit_buffer->global_buf_len+4, m_bit_buffer->global_buf, -1);
-            }else{
-                CHECK_ENOUGH_BUF(m_bit_buffer->global_buf_idx + m_bit_buffer->m_rd_offset/8+3, m_bit_buffer->global_buf_len, m_bit_buffer->global_buf, -1);
-            }
             uint32_t input_word = m_bit_buffer->read_word();
-            ddprintf("read word %04x \n", input_word);
+
             // Start with upper 16-bits
             uint16_t input_data = input_word >> 16;
 
@@ -61,19 +49,13 @@ public:
             int coef_bits  = code & 0xF;
 
             // Move input point past decoded data
-            if (coeff == 0){
+            if (coeff == 0)
                 m_bit_buffer->advance(code_width + coef_bits);
-                CHECK_ENOUGH_BUF(m_bit_buffer->global_buf_idx + m_bit_buffer->m_rd_offset/8, m_bit_buffer->global_buf_len, m_bit_buffer->global_buf, -1);
-            }
             // End of block or ZRL (no coefficient)
-            else if (code == 0 || code == 0xF0){
+            else if (code == 0 || code == 0xF0)
                 m_bit_buffer->advance(code_width);
-                CHECK_ENOUGH_BUF(m_bit_buffer->global_buf_idx + m_bit_buffer->m_rd_offset/8, m_bit_buffer->global_buf_len, m_bit_buffer->global_buf, -1);
-            }
-            else{
+            else
                 m_bit_buffer->advance(code_width + coef_bits);
-                CHECK_ENOUGH_BUF(m_bit_buffer->global_buf_idx + m_bit_buffer->m_rd_offset/8, m_bit_buffer->global_buf_len, m_bit_buffer->global_buf, -1);
-            }
 
             // Use remaining data for actual coeffecient
             input_data = input_word >> (16 - code_width);
@@ -118,7 +100,7 @@ public:
                 }
             }
         }
-        
+
         return samples;
     }
 

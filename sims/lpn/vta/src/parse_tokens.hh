@@ -110,6 +110,7 @@ BaseToken* MakeNumInsnToken(void* buffer) {
   new_token->ysize = 0;
 
   c.generic = *insn;
+  // std::cerr << "MakeNumInsnToken: " << c.mem.opcode << " " << c.mem.memory_type << std::endl;
   // c.generic = *(reinterpret_cast<VTAGenericInsn*>(&(new_token->insn)));
   // don't even care if its mem insn
   if (c.mem.opcode == VTA_OPCODE_LOAD || c.mem.opcode == VTA_OPCODE_STORE) {
@@ -137,25 +138,30 @@ BaseToken* MakeNumInsnToken(void* buffer) {
     if (c.mem.opcode == VTA_OPCODE_LOAD) {
       // printf("LOAD ");
       if (c.mem.memory_type == VTA_MEM_ID_UOP) {
+        // std::cerr << "Make VTA_MEM_ID_UOP instruction" << std::endl;
         new_token->opcode = static_cast<int>(ALL_ENUM::COMPUTE);
         new_token->subopcode = static_cast<int>(ALL_ENUM::LOADUOP);
       }
       if (c.mem.memory_type == VTA_MEM_ID_WGT) {
+        // std::cerr << "Make VTA_MEM_ID_WGT instruction" << std::endl;
         new_token->opcode = static_cast<int>(ALL_ENUM::LOAD);
         new_token->subopcode = static_cast<int>(ALL_ENUM::LOAD);
         new_token->tstype = static_cast<int>(ALL_ENUM::WGT);
       }
       if (c.mem.memory_type == VTA_MEM_ID_INP) {
+        // std::cerr << "Make VTA_MEM_ID_INP instruction" << std::endl;
         new_token->opcode = static_cast<int>(ALL_ENUM::LOAD);
         new_token->subopcode = static_cast<int>(ALL_ENUM::LOAD);
         new_token->tstype = static_cast<int>(ALL_ENUM::INP);
       }
       if (c.mem.memory_type == VTA_MEM_ID_ACC) {
+        // std::cerr << "Make VTA_MEM_ID_ACC instruction" << std::endl;
         new_token->opcode = static_cast<int>(ALL_ENUM::COMPUTE);
         new_token->subopcode = static_cast<int>(ALL_ENUM::LOADACC);
       }
     }
     if (c.mem.opcode == VTA_OPCODE_STORE) {
+      // std::cerr << "Make VTA_OPCODE_STORE instruction" << std::endl;
       new_token->opcode = static_cast<int>(ALL_ENUM::STORE);
       new_token->subopcode = static_cast<int>(ALL_ENUM::STORE);
     }
@@ -168,6 +174,7 @@ BaseToken* MakeNumInsnToken(void* buffer) {
     new_token->ysize = static_cast<int>(c.mem.y_size);
 
   } else if (c.mem.opcode == VTA_OPCODE_GEMM) {
+    // std::cerr << "Make VTA_OPCODE_GEMM instruction" << std::endl;
     // Print instruction field information
     new_token->opcode = static_cast<int>(ALL_ENUM::COMPUTE);
     new_token->subopcode = static_cast<int>(ALL_ENUM::GEMM);
@@ -184,6 +191,7 @@ BaseToken* MakeNumInsnToken(void* buffer) {
     new_token->lp_0 = static_cast<int>(c.gemm.iter_in);
 
   } else if (c.mem.opcode == VTA_OPCODE_ALU) {
+    // std::cerr << "Make VTA_OPCODE_ALU instruction" << std::endl;
     new_token->opcode = static_cast<int>(ALL_ENUM::COMPUTE);
     new_token->subopcode = static_cast<int>(ALL_ENUM::ALU);
 
@@ -200,6 +208,7 @@ BaseToken* MakeNumInsnToken(void* buffer) {
     new_token->use_alu_imm = static_cast<int>(c.alu.use_imm);
 
   } else if (c.mem.opcode == VTA_OPCODE_FINISH) {
+    // std::cerr << "Make VTA_OPCODE_FINISH instruction" << std::endl;
     new_token->opcode = static_cast<int>(ALL_ENUM::LOAD);
     new_token->subopcode = static_cast<int>(ALL_ENUM::SYNC);
     new_token->tstype = static_cast<int>(ALL_ENUM::FINISH);

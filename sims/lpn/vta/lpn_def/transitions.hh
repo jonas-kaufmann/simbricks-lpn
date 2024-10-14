@@ -11,8 +11,8 @@ Transition tstart = {
     .p_input = {&pstart},
     .pi_w = {take_start_token(pstart)},
     .pi_w_threshold = {1},
-    .p_output = {&plaunch, &pnumInsn},
-    .po_w = {output_launch_token(pstart), output_pnum_insn(pstart)}, 
+    .p_output = {&plaunch},
+    .po_w = {output_launch_token(pstart)}, 
 };
 Transition t13 = {
     .id = "t13",
@@ -26,11 +26,12 @@ Transition t13 = {
 Transition t9 = {
     .id = "t9",
     .delay_f = delay_t9(),
-    .p_input = {&psReadCmd, &pcontrol, &pnumInsn},
-    .pi_w = {take_1_token(), take_1_token(), take_readLen(psReadCmd)},
+    .p_input = {&psReadCmd, &pcontrol},
+    .pi_w = {take_1_token(), take_1_token()},
     .pi_w_threshold = {0, 0, 0},
+    .pi_guard = {psDrain_is_empty(), empty_guard()},
     .p_output = {&psDrain, &pcontrol_prime},
-    .po_w = {pass_var_token_readLen(pnumInsn), pass_empty_token()},
+    .po_w = {output_pnum_insn(psReadCmd), pass_empty_token()},
 };
 Transition t12 = {
     .id = "t12",

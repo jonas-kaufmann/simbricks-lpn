@@ -151,7 +151,7 @@ int sync(Transition* self, uint64_t time){
 
    if (self->delay_event == lpn::LARGE){
       self->time = time;
-      return 1;
+      return 0;
    }
    
    if(time >= self->delay_event){
@@ -162,6 +162,7 @@ int sync(Transition* self, uint64_t time){
      accept_t(self);
      fire_t(self);
      self->delay_event = lpn::LARGE;
+     return 1;
      ////std::cerr <<  "commit " << self->id << "finishes " << std::endl;
    }
    return 0;

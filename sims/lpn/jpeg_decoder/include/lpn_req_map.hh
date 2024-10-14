@@ -83,11 +83,9 @@ class Matcher {
     MatchAll();
   }
 
-    // Matches or Enqueues a buffered request
+  // Matches or Enqueues a buffered request
   void Produce(std::unique_ptr<MemReq> req) {
-    if (!valid || !MatchReq(req)) {
       reqs.emplace_back(std::move(req));
-    }
   }
 
   // Consumes the request, need to register again afterwards
@@ -105,76 +103,38 @@ class Matcher {
     return valid;
   }
 
- private:
   // Matches buffered memory requests in current one
   void MatchAll() {
+    
+    if(isCompleted() || !valid){
+      return;
+    }
+
     auto start = currReq->addr;
     auto end = start + currReq->len;
-    int tag = currReq->tag;
     auto it = reqs.begin();
+    // there will be only one request in the queue
     while (it != reqs.end()) {
       auto req = it->get();
-      // Check bounds
-      if(req->acquired_len != req->len){
-        ++it;
-        continue;
-      }
-      if (req->addr + req->len > start && req->addr < end) {
+      assert(start >= req->addr);
+      if(req->addr + req->acquired_len >= end){
         // Copy memory
-        auto from = std::max(start, req->addr);
-        auto to = std::min(end, req->addr + req->len);
-        auto offset1 = from - start;
+        auto from = start;
+        auto to = end;
         auto offset2 = from - req->addr;
-        memcpy((void*)((uint64_t)currReq->buffer + offset1), (void*)((uint64_t)req->buffer + offset2), to - from);
+        memcpy((void*)((uint64_t)currReq->buffer), (void*)((uint64_t)req->buffer + offset2), to - from);
         currReq->acquired_len += to - from;
-        // std::cerr << "Matching request" << " tag:" << tag << " addr:" << req->addr << " acc_len:" << currReq->acquired_len <<  " len: " << currReq->len << std::endl;
-
-
-        if (to - from < req->len) {
-          std::cerr <<"type :" << tag << " Start: " << start << " End: " << end << std::endl;
-          std::cerr << "Checking bounds: " << req->addr << " " << req->len << std::endl;
-          assert(0);  // If overlapping requests
-          // Create new request with the correct info
-          // Add it to vector
-        }
-
         // do you need to erase the request?
         // erase returns the next iterator
-        it = reqs.erase(it);
         if (currReq->acquired_len == currReq->len) {
+          // std::cerr << "Matching request done" << " addr:" << currReq->addr << " acc_len:" << currReq->acquired_len <<  " len: " << currReq->len << std::endl;
           break;
         }
-        continue;
       }
-      ++it;
+      break;
     }
   }
 
-  // Matches a single request
-  bool MatchReq(std::unique_ptr<MemReq>& req) {
-    // Else try to match the request
-    auto start = currReq->addr;
-    auto end = start + currReq->len;
-
-    if (req->addr + req->len > start && req->addr < end) {
-      // Copy memory
-      auto from = std::max(start, req->addr);
-      auto to = std::min(end, req->addr + req->len);
-      auto offset1 = from - start;
-      auto offset2 = from - req->addr;
-      memcpy((void*)((uint64_t)currReq->buffer + offset1), (void*)((uint64_t)req->buffer + offset2), to - from);
-      currReq->acquired_len += to - from;
-
-      if (to - from < req->len) {
-        std::cerr << "tag:" << tag << " :" << currReq->tag <<" Checking bounds: " << req->addr << " " << req->len << " curr: " << currReq->addr << " len: " <<  currReq->len << std::endl;
-        assert(0);  // If overlapping requests
-        // Create new request with the correct info
-        // Add it to vector
-      }
-      return true;
-    }
-    return false;
-  }
 };
 
 
@@ -184,7 +144,18 @@ class CtlVar {
   std::mutex mx;
   bool blocked = false;
   bool finished = false;
+  bool exited = false;
   std::map<int, Matcher> req_matcher;
+  
+  void Reset() {
+    std::unique_lock<std::mutex> lk(mx);
+    for(auto& kv : req_matcher){
+      kv.second.Clear();
+    }
+    blocked = false;
+    finished = false;
+    exited = false;
+  }
   // explicit CtlVar(std::map<int, std::deque<std::unique_ptr<MemReq>>>& _req_map) : req_matcher(_req_map) {}
 };
 
