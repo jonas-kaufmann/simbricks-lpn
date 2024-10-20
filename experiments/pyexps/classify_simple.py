@@ -8,15 +8,13 @@ import itertools
 experiments = []
 
 # Experiment parameters
-host_variants = ["qk", "qt", "gt", "simics"]
+host_variants = ["qk", "qt", "gt", "gk", "simics", "gem5_o3"]
 inference_device_opts = [
     node.TvmDeviceType.VTA,
     node.TvmDeviceType.CPU,
     node.TvmDeviceType.CPU_AVX512,
 ]
 vta_clk_freq_opts = [100, 200, 400, 800]
-vta_batch_opts = [1, 2, 4]
-vta_block_opts = [16, 32]
 model_name_opts = [
     "resnet18_v1",
     "resnet34_v1",
@@ -33,7 +31,7 @@ class TvmClassifyLocal(node.AppConfig):
         self.pci_vta_id = 0
         self.device = node.TvmDeviceType.VTA
         self.repetitions = 1
-        self.batch_size = 4
+        self.batch_size = 1
         self.vta_batch = 1
         self.vta_block = 16
         self.model_name = "resnet18_v1"
@@ -79,7 +77,7 @@ class TvmClassifyLocal(node.AppConfig):
             (
                 "python3 /tmp/guest/deploy_classification-infer.py /root/mxnet"
                 f" {self.device.value} {self.model_name} /tmp/guest/cat.jpg"
-                f" {self.batch_size} {self.repetitions} {int(self.debug)}"
+                f" {self.batch_size} {self.repetitions} {int(self.debug)} 0"
             ),
         ]
         return cmds
@@ -94,7 +92,7 @@ class VtaNode(node.NodeConfig):
         # Bump amount of system memory
         self.memory = 4 * 1024
         # Reserve physical range of memory for the VTA user-space driver
-        self.kcmd_append = " memmap=512M!1G"
+        self.kcmd_append = "memmap=512M$1G iomem=relaxed"
 
     def prepare_pre_cp(self):
         # Define commands to run before application to configure the server
@@ -126,21 +124,17 @@ for (
     host_var,
     inference_device,
     vta_clk_freq,
-    vta_batch,
-    vta_block,
     model_name,
     cores
 ) in itertools.product(
     host_variants,
     inference_device_opts,
     vta_clk_freq_opts,
-    vta_batch_opts,
-    vta_block_opts,
     model_name_opts,
     core_opts
 ):
     experiment = exp.Experiment(
-        f"classify_simple-{model_name}-{inference_device.value}-{host_var}-{cores}-{vta_clk_freq}-{vta_batch}x{vta_block}"
+        f"classify_simple-{model_name}-{inference_device.value}-{host_var}-{cores}-{vta_clk_freq}"
     )
     pci_vta_id = 2
     sync = False
@@ -156,6 +150,23 @@ for (
         sync = True
     elif host_var == "simics":
         HostClass = sim.SimicsHost
+    elif host_var == "gk":
+        pci_vta_id = 0
+        HostClass = sim.Gem5KvmHost
+        sync = False
+    elif host_var == "gem5_o3":
+
+        class CustomGem5(sim.Gem5Host):
+
+            def __init__(self, node_config: sim.NodeConfig) -> None:
+                super().__init__(node_config)
+                self.cpu_type = 'O3CPU'
+                self.cpu_freq = '1GHz'
+
+        HostClass = CustomGem5
+        sync = True
+        experiment.checkpoint = True
+        pci_vta_id = 0
 
     # Instantiate server
     server_cfg = VtaNode()
@@ -166,8 +177,6 @@ for (
         server_cfg.kcmd_append = ""
     server_cfg.app = TvmClassifyLocal()
     server_cfg.app.device = inference_device
-    server_cfg.app.vta_batch = vta_batch
-    server_cfg.app.vta_block = vta_block
     server_cfg.app.model_name = model_name
     server_cfg.app.pci_vta_id = pci_vta_id
     server = HostClass(server_cfg)
@@ -180,8 +189,6 @@ for (
     if inference_device == node.TvmDeviceType.VTA:
         vta = sim.VTADev()
         vta.clock_freq = vta_clk_freq
-        vta.batch = vta_batch
-        vta.block = vta_block
         server.add_pcidev(vta)
         if host_var == "simics":
             server.debug_messages = False
