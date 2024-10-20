@@ -433,6 +433,15 @@ class QemuHost(HostSim):
         return cmd
 
 
+class QemuIcountHost(QemuHost):
+    """QEMU host simulator that uses instruction counting for
+    synchronization."""
+
+    def __init__(self, node_config: NodeConfig) -> None:
+        super().__init__(node_config)
+        self.sync = True
+
+
 class Gem5Host(HostSim):
     """Gem5 host simulator."""
 
@@ -538,6 +547,14 @@ class Gem5Host(HostSim):
 
         cmd += ' '.join(self.extra_config_args)
         return cmd
+
+
+class Gem5KvmHost(Gem5Host):
+
+    def __init__(self, node_config: NodeConfig) -> None:
+        super().__init__(node_config)
+        self.cpu_type = 'X86KvmCPU'
+        self.sync = False
 
 
 class SimicsHost(HostSim):
