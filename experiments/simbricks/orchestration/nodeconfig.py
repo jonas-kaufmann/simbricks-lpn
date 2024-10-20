@@ -29,8 +29,6 @@ import typing as tp
 import enum
 import math
 
-import requests
-
 
 class AppConfig():
     """Defines the application to run on a node or host."""
