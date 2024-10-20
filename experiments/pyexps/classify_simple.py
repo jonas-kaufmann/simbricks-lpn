@@ -36,6 +36,7 @@ class TvmClassifyLocal(node.AppConfig):
         self.vta_block = 16
         self.model_name = "resnet18_v1"
         self.debug = True
+        self.gem5_cp = False
 
     def config_files(self):
         # mount TVM inference script in simulated server under /tmp/guest
@@ -73,13 +74,15 @@ class TvmClassifyLocal(node.AppConfig):
             "sleep 6",
             f"export VTA_RPC_HOST=127.0.0.1",
             f"export VTA_RPC_PORT=9091",
-            # run inference
-            (
-                "python3 /tmp/guest/deploy_classification-infer.py /root/mxnet"
-                f" {self.device.value} {self.model_name} /tmp/guest/cat.jpg"
-                f" {self.batch_size} {self.repetitions} {int(self.debug)} 0"
-            ),
         ]
+        if self.gem5_cp:
+            cmds.append("export GEM5_CP=1")
+        # run inference
+        cmds.append((
+            "python3 /tmp/guest/deploy_classification-infer.py /root/mxnet"
+            f" {self.device.value} {self.model_name} /tmp/guest/cat.jpg"
+            f" {self.batch_size} {self.repetitions} {int(self.debug)} 0"
+        ),)
         return cmds
 
 
@@ -179,6 +182,7 @@ for (
     server_cfg.app.device = inference_device
     server_cfg.app.model_name = model_name
     server_cfg.app.pci_vta_id = pci_vta_id
+    server_cfg.app.gem5_cp = host_var in ["gt", "gem5_o3"]
     server = HostClass(server_cfg)
     # Whether to synchronize VTA and server
     server.sync = sync
