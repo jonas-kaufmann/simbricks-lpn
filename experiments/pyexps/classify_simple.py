@@ -164,7 +164,7 @@ for (
             def __init__(self, node_config: sim.NodeConfig) -> None:
                 super().__init__(node_config)
                 self.cpu_type = 'O3CPU'
-                self.cpu_freq = '1GHz'
+                self.cpu_freq = '3GHz'
 
         HostClass = CustomGem5
         sync = True
