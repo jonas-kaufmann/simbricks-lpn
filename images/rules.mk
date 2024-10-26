@@ -169,7 +169,7 @@ $(packer):
 # Kernel
 
 $(kernel_dir)/vmlinux: $(kernel_dir)/.config
-	$(MAKE) -C $(kernel_dir)
+	$(MAKE) -C $(kernel_dir) -j`nproc`
 	touch $@
 
 $(vmlinux): $(kernel_dir)/vmlinux
