@@ -31,7 +31,7 @@ apt-get -y install --no-install-recommends \
 
 # build tvm
 mkdir -p /root
-git clone --depth 10 --recursive --branch lpn https://github.com/jonas-kaufmann/tvm-simbricks.git /root/tvm
+git clone --depth 1 --recursive --branch lpn https://github.com/jonas-kaufmann/tvm-simbricks.git /root/tvm
 cd /root/tvm
 cp 3rdparty/vta-hw/config/simbricks_pci_sample.json 3rdparty/vta-hw/config/vta_config.json
 mkdir build
