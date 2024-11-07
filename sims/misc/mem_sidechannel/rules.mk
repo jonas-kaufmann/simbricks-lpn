@@ -1,4 +1,4 @@
-# Copyright 2023 Max Planck Institute for Software Systems, and
+# Copyright 2021 Max Planck Institute for Software Systems, and
 # National University of Singapore
 #
 # Permission is hereby granted, free of charge, to any person obtaining
@@ -22,8 +22,13 @@
 
 include mk/subdir_pre.mk
 
-$(eval $(call subdir,gcd))
-$(eval $(call subdir,jpeg_decoder))
-$(eval $(call subdir,mem_sidechannel))
+bin_tester := $(d)tester
+objs_tester := $(d)tester.o
+
+$(bin_tester): CPPFLAGS += -I$(abspath $(lib_dir))
+$(bin_tester): $(objs_tester) $(lib_simbricks)
+
+CLEAN := $(bin_tester) $(objs_tester)
+ALL := $(bin_tester)
 
 include mk/subdir_post.mk
