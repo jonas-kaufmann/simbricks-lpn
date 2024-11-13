@@ -41,6 +41,8 @@
 #include "sims/lpn/vta/lpn_def/all_enum.hh"
 #include "sims/lpn/vta/lpn_def/places.hh"
 
+// #define DEBUG_FUNC_SIM
+
 namespace vta {
 namespace sim {
 
@@ -412,7 +414,7 @@ class Device {
   int Run(vta_phy_addr_t insn_phy_addr, uint32_t insn_count,
           uint32_t wait_cycles) {
     // Enqueue load request
-    std::cout << "Func sim registered" << std::endl;
+    std::cout << "Func sim registered : really >" << std::endl;
     // getData(ctl_func, insn_phy_addr, insn_count * sizeof(VTAGenericInsn), LOAD_INSN, READ_REQ);
     // auto req = ctl_func.req_matcher[LOAD_INSN].Consume();
 
@@ -575,11 +577,15 @@ class Device {
   }
 
   int RunGEMM(const VTAGemInsn* op) {
+    // std::cerr << "GEMM params " << op->reset_reg << " " << " skip " << prof_->SkipExec() << " " << op->iter_out << " " << op->iter_in << " "
+    //           << op->uop_bgn << " " << op->uop_end << std::endl;
     if (!op->reset_reg) {
       prof_->gemm_counter +=
           op->iter_out * op->iter_in * (op->uop_end - op->uop_bgn);
       if (prof_->SkipExec())
         return 0;
+      // std::cerr << "GEMM params " << op->iter_out << " " << op->iter_in << " "
+      //           << op->uop_bgn << " " << op->uop_end << std::endl;
       for (uint32_t y = 0; y < op->iter_out; ++y) {
         for (uint32_t x = 0; x < op->iter_in; ++x) {
           for (uint32_t uindex = op->uop_bgn; uindex < op->uop_end; ++uindex) {
@@ -615,6 +621,9 @@ class Device {
       if (prof_->SkipExec())
         return 0;
       // reset
+      // std::cerr << "GEMM params " << op->iter_out << " " << op->iter_in << " "
+      //           << op->uop_bgn << " " << op->uop_end << std::endl;
+
       for (uint32_t y = 0; y < op->iter_out; ++y) {
         for (uint32_t x = 0; x < op->iter_in; ++x) {
           for (uint32_t uindex = op->uop_bgn; uindex < op->uop_end; ++uindex) {

@@ -489,9 +489,9 @@ class Gem5Host(HostSim):
         cmd = f'{env.gem5_path(self.variant)} --outdir={env.gem5_outdir(self)} '
         cmd += ' '.join(self.extra_main_args)
         cmd += (
-            f' {env.gem5_py_path} --caches --l2cache '
-            '--l1d_size=32kB --l1i_size=32kB --l2_size=32MB '
-            '--l1d_assoc=8 --l1i_assoc=8 --l2_assoc=16 '
+            f' {env.gem5_py_path} --caches --l2cache --l3cache '
+            '--l1d_size=32kB --l1i_size=32kB --l2_size=1024kB --l3_size=36864kB '
+            '--l1d_assoc=8 --l1i_assoc=8 --l2_assoc=16 --l3_assoc=9 '
             f'--cacheline_size=64 --cpu-clock={self.cpu_freq}'
             f' --sys-clock={self.sys_clock} '
             f'--checkpoint-dir={env.gem5_cpdir(self)} '
@@ -500,7 +500,7 @@ class Gem5Host(HostSim):
             f'--disk-image={env.cfgtar_path(self)} '
             f'--cpu-type={cpu_type} --mem-size={self.node_config.memory}MB '
             f'--num-cpus={self.node_config.cores} '
-            '--mem-type=DDR4_2400_16x4 '
+            '--mem-type=DDR4_3200_16x4 '
         )
 
         if self.node_config.kcmd_append:
@@ -1228,6 +1228,21 @@ class VTADev(PCIDevSim):
         )
         return cmd
 
+class ProtoaccDev(PCIDevSim):
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.clock_freq = 2000
+        """Clock frequency in MHz"""
+
+    def run_cmd(self, env):
+        cmd = (
+            f'{env.repodir}/sims/misc/protoacc/simbricks/protoacc_simbricks '
+            f'{env.dev_pci_path(self)} {env.dev_shm_path(self)} '
+            f'{self.start_tick} {self.sync_period} {self.pci_latency} '
+            f'{self.clock_freq}'
+        )
+        return cmd
 
 class VTALpnBmDev(PCIDevSim):
     """Behavioral model of the VTA based on a Latency Petri Net."""
@@ -1235,7 +1250,7 @@ class VTALpnBmDev(PCIDevSim):
     def __init__(self) -> None:
         super().__init__()
         self.start_tick = 0
-        self.name = 'vta_lpn_bm'
+        self.name = 'vta_lb'
 
     def resreq_mem(self) -> int:
         return 512  # this is a guess

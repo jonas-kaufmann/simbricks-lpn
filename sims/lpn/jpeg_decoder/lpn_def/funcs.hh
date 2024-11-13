@@ -5,7 +5,7 @@
 #include "places.hh"
 
 namespace lpnjpeg {
-    uint64_t CYCLEPERIOD = 1'000'000 / 150;
+    uint64_t CYCLEPERIOD = 1'000'000 / 1000; // 150 MHz
 }
 std::function<uint64_t()> conDelay(int constant){
     auto delay = [&, constant]() -> int{

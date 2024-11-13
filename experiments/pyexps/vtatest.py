@@ -45,6 +45,8 @@ for h in ['qk', 'qt', 'gk', 'gt']:
             node_config.app.pci_device = '0000:00:00.0'
             host = sim.Gem5Host(node_config)
             host.sync = True
+            host.cpu_type = 'O3CPU'
+            host.variant = 'fast'
         elif h == 'qk':
             host = sim.QemuHost(node_config)
         elif h == 'qt':
@@ -58,7 +60,7 @@ for h in ['qk', 'qt', 'gk', 'gt']:
         elif vta_var == 'rtl':
             vta = sim.VTADev()
         vta.name = 'vta0'
-        vta.clock_freq = 2000  # 2 GHz
+        vta.clock_freq = 2000 # in Mhz
         e.add_pcidev(vta)
 
         host.add_pcidev(vta)

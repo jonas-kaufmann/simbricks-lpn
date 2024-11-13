@@ -53,6 +53,7 @@ build {
     destination = "/tmp/input"
   }
 
+
   provisioner "shell" {
     execute_command = "{{ .Vars }} sudo -S -E bash '{{ .Path }}'"
     scripts         = ["scripts/install-${var.outname}.sh", "scripts/cleanup.sh"]

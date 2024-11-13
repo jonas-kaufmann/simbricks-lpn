@@ -121,7 +121,7 @@ size_t GetSizeOfRGB(){
 }
 
 size_t GetCurRGBOffset(){
-    std::cout << "Get cur RGB offset " << pdone.tokensLen()*64 << std::endl;
+    // std::cout << "Get cur RGB offset " << pdone.tokensLen()*64 << std::endl;
     int lpn_size = pdone.tokensLen()*64*4; 
     if(lpn_size == 0){
         return 0;
@@ -131,12 +131,12 @@ size_t GetCurRGBOffset(){
 }
 
 size_t GetConsumedRGBOffset(){
-    std::cout << "Get consumed RGB offset " << rgb_consumed_len << std::endl;
+    // std::cout << "Get consumed RGB offset " << rgb_consumed_len << std::endl;
     return rgb_consumed_len;
 }
 
 void UpdateConsumedRGBOffset(size_t len){
-    std::cout << "Update consumed RGB offset " << len << std::endl;
+    // std::cout << "Update consumed RGB offset " << len << std::endl;
     rgb_consumed_len = len;
 }
 
@@ -405,7 +405,7 @@ static bool DecodeImage(int till_end)
         for(int i : count_6){
             ddprintf("cnt %d dc_Y %d \n", i, dc_coeff_Y);
         }
-        printf("producing lpn tokens %lu\n", timestamp);
+        ddprintf("producing lpn tokens %lu\n", timestamp);
         for(int cnt : count_6){
             NEW_TOKEN(mcu_token, new_token);
             new_token->delay = 3*(cnt) + 6;
@@ -445,9 +445,9 @@ int jpeg_decode_funcsim(uint64_t src_addr, size_t src_len, uint64_t dst_addr, ui
     ddprintf("update lpn state with bytes of length %d\n", len);
     for (int i=0;i<len;)
     {
-        std::cout << "driver want some data, index i at " << i << " addr:" << src_addr+i << "\n";
+        // std::cout << "driver want some data, index i at " << i << " addr:" << src_addr+i << "\n";
         GETDATA(i, DMA_BLOCK_SIZE);
-        std::cout << "After get some data, index i at " << i << "\n";
+        // std::cout << "After get some data, index i at " << i << "\n";
         
         // i always points to next unaccessed slots
         if (! mcu_start){
@@ -489,7 +489,7 @@ int jpeg_decode_funcsim(uint64_t src_addr, size_t src_len, uint64_t dst_addr, ui
             // num_tokens_for_cur_img = int(std::ceil(m_width/8.0)*std::ceil(m_height/8.0));
             // this calculation is buggy
             num_tokens_for_cur_img = std::ceil(m_width/8.0)*std::ceil(m_height/8.0);
-            std::cout << "num_tokens_for_cur_img " << num_tokens_for_cur_img << std::endl;
+            // std::cout << "num_tokens_for_cur_img " << num_tokens_for_cur_img << std::endl;
 
             GetMOutputR();
             GetMOutputG();
@@ -651,9 +651,9 @@ int jpeg_decode_funcsim(uint64_t src_addr, size_t src_len, uint64_t dst_addr, ui
             while(i < len){
                 int j = 0;
                 int marker_detected = 0;
-                std::cout << "need to get 6 blocks of data :" << BLOCK6BYTES << " addr: " << i+src_addr << "\n";
+                // std::cout << "need to get 6 blocks of data :" << BLOCK6BYTES << " addr: " << i+src_addr << "\n";
                 GETDATA(i, BLOCK6BYTES);
-                std::cout << "get 6 blocks of data done" << "\n";
+                // std::cout << "get 6 blocks of data done" << "\n";
                 while(j < BLOCK6BYTES){
                     b = buf[i+j];
                     if (m_bit_buffer.push(b))
@@ -672,14 +672,14 @@ int jpeg_decode_funcsim(uint64_t src_addr, size_t src_len, uint64_t dst_addr, ui
                     // decode till the end
                     i += j;
                     decode_done = DecodeImage(1);
-                    std::cout << "break out\n";
+                    // std::cout << "break out\n";
                     break;
                 }
                 i += j;
                 // decode one 6 blocks
-                std::cout << "decode 6 blocks\n";
+                // std::cout << "decode 6 blocks\n";
                 decode_done = DecodeImage(0); 
-                std::cout << "decode 6 blocks finish\n";
+                // std::cout << "decode 6 blocks finish\n";
             }
             // while (i < len)
             // {

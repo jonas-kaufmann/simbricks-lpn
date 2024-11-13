@@ -181,6 +181,7 @@ SIMBRICKS_PROTO_MSG_SZCHECK(union SimbricksProtoPcieD2H);
 #define SIMBRICKS_PROTO_PCIE_H2D_MSG_DEVCTRL 0x64
 /* treat write as posted meaning device doesn't send a completion message */
 #define SIMBRICKS_PROTO_PCIE_H2D_MSG_WRITE_POSTED 0x65
+#define SIMBRICKS_PROTO_PCIE_H2D_MSG_FORCESYNC_TIME 0x66
 
 struct SimbricksProtoPcieH2DRead {
   uint64_t req_id;
@@ -238,8 +239,20 @@ struct SimbricksProtoPcieH2DDevctrl {
 } __attribute__((packed));
 SIMBRICKS_PROTO_MSG_SZCHECK(struct SimbricksProtoPcieH2DDevctrl);
 
+
+struct SimbricksProtoPcieH2DForceupadte { 
+  uint64_t payload;
+  uint8_t pad[40];
+  uint64_t timestamp;
+  uint8_t pad_[7];
+  uint8_t own_type;
+} __attribute__((packed));
+SIMBRICKS_PROTO_MSG_SZCHECK(struct SimbricksProtoPcieH2DForceupadte);
+
+
 union SimbricksProtoPcieH2D {
   union SimbricksProtoBaseMsg base;
+  struct SimbricksProtoPcieH2DForceupadte forceupdate;
   struct SimbricksProtoPcieH2DRead read;
   struct SimbricksProtoPcieH2DWrite write;
   struct SimbricksProtoPcieH2DReadcomp readcomp;

@@ -24,5 +24,6 @@ include mk/subdir_pre.mk
 
 $(eval $(call subdir,gcd))
 $(eval $(call subdir,jpeg_decoder))
+$(eval $(call subdir,mem_sidechannel))
 
 include mk/subdir_post.mk

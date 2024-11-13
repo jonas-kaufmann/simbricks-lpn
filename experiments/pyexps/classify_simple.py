@@ -9,12 +9,13 @@ experiments = []
 
 # Experiment parameters
 host_variants = ["qk", "qt", "gt", "gk", "simics", "gem5_o3"]
+vta_ops = ["rtl", "lpn"]
 inference_device_opts = [
     node.TvmDeviceType.VTA,
     node.TvmDeviceType.CPU,
     node.TvmDeviceType.CPU_AVX512,
 ]
-vta_clk_freq_opts = [100, 200, 400, 800]
+vta_clk_freq_opts = [100, 200, 400, 800, 2000]
 model_name_opts = [
     "resnet18_v1",
     "resnet34_v1",
@@ -41,16 +42,26 @@ class TvmClassifyLocal(node.AppConfig):
     def config_files(self):
         # mount TVM inference script in simulated server under /tmp/guest
         return {
-            "deploy_classification-infer.py":
+            "pci_driver.cc":
                 open(
-                    "/local/jkaufman/tvm-simbricks/vta/tutorials/frontend/deploy_classification-infer.py",
+                    "/home/jiacma/simbricks-lpn/pci_driver.cc",
                     "rb",
                 ),
-            "cat.jpg":
-                open("/local/jkaufman/cat.jpg", "rb"),
+            "test.c":
+                open(
+                    "/home/jiacma/simbricks-lpn/test.c",
+                    "rb",
+                ),
+            "deploy_classification-infer.py":
+                open(
+                    "/home/jiacma/simbricks-lpn/tvm/vta/tutorials/frontend/deploy_classification-infer.py",
+                    "rb",
+                ),
+            "cat.png":
+                open("/home/jiacma/simbricks-lpn/data/cat.png", "rb"),
         }
 
-    def prepare_pre_cp(self) -> list[str]:
+    def prepare_pre_cp(self):
         cmds = super().prepare_pre_cp()
         cmds.extend([
             'echo \'{"TARGET" : "simbricks-pci", "HW_VER" : "0.0.2",'
@@ -64,9 +75,17 @@ class TvmClassifyLocal(node.AppConfig):
         ])
         return cmds
 
+
     def run_cmds(self, node):
         # define commands to run on simulated server
-        cmds = [
+        # cmds = [
+        # "cp /tmp/guest/pci_driver.cc /root/tvm/3rdparty/vta-hw/src/simbricks-pci/pci_driver.cc",
+        # "cd /root/tvm/build",
+        # "make clean",
+        # "make -j4",
+        # ]
+        cmds = []
+        cmds.extend([
             # start RPC server
             f"VTA_DEVICE=0000:00:{(self.pci_vta_id):02d}.0 python3 -m"
             " vta.exec.rpc_server &"
@@ -74,15 +93,20 @@ class TvmClassifyLocal(node.AppConfig):
             "sleep 6",
             f"export VTA_RPC_HOST=127.0.0.1",
             f"export VTA_RPC_PORT=9091",
-        ]
+        ])
         if self.gem5_cp:
             cmds.append("export GEM5_CP=1")
+        # cmds.extend([
+        #     "dmesg | grep -i mtrr",
+        #     "dmesg | grep -i pat"])
         # run inference
         cmds.append((
             "python3 /tmp/guest/deploy_classification-infer.py /root/mxnet"
-            f" {self.device.value} {self.model_name} /tmp/guest/cat.jpg"
+            f" {self.device.value} {self.model_name} /tmp/guest/cat.png"
             f" {self.batch_size} {self.repetitions} {int(self.debug)} 0"
         ),)
+
+        print(cmds)
         return cmds
 
 
@@ -95,8 +119,11 @@ class VtaNode(node.NodeConfig):
         # Bump amount of system memory
         self.memory = 4 * 1024
         # Reserve physical range of memory for the VTA user-space driver
+        # 1G is the start 1G - 1G+512M 
         self.kcmd_append = "memmap=512M$1G iomem=relaxed"
-
+        # self.kcmd_append = "memmap=512M@1G iomem=relaxed"
+        # self.kcmd_append = "iomem=relaxed"
+    
     def prepare_pre_cp(self):
         # Define commands to run before application to configure the server
         cmds = super().prepare_pre_cp()
@@ -119,6 +146,8 @@ class VtaNode(node.NodeConfig):
             ),
             'echo "dead beef" >/sys/bus/pci/drivers/vfio-pci/new_id',
         ])
+
+        
         return cmds
 
 
@@ -128,16 +157,18 @@ for (
     inference_device,
     vta_clk_freq,
     model_name,
-    cores
+    cores,
+    vta_op
 ) in itertools.product(
     host_variants,
     inference_device_opts,
     vta_clk_freq_opts,
     model_name_opts,
-    core_opts
+    core_opts,
+    vta_ops
 ):
     experiment = exp.Experiment(
-        f"classify_simple-{model_name}-{inference_device.value}-{host_var}-{cores}-{vta_clk_freq}"
+        f"classify-{model_name}-{inference_device.value}-{host_var}-{vta_op}-{cores}-{vta_clk_freq}"
     )
     pci_vta_id = 2
     sync = False
@@ -164,7 +195,9 @@ for (
             def __init__(self, node_config: sim.NodeConfig) -> None:
                 super().__init__(node_config)
                 self.cpu_type = 'O3CPU'
-                self.cpu_freq = '1GHz'
+                # self.variant = 'opt'
+                self.variant = 'fast'
+                self.cpu_freq = '3GHz'
 
         HostClass = CustomGem5
         sync = True
@@ -191,7 +224,11 @@ for (
 
     # Instantiate and connect VTA PCIe-based accelerator to server
     if inference_device == node.TvmDeviceType.VTA:
-        vta = sim.VTADev()
+
+        if vta_op == "rtl":
+            vta = sim.VTADev()
+        else:
+            vta = sim.VTALpnBmDev()
         vta.clock_freq = vta_clk_freq
         server.add_pcidev(vta)
         if host_var == "simics":
@@ -200,7 +237,7 @@ for (
 
     server.pci_latency = server.sync_period = vta.pci_latency = (
         vta.sync_period
-    ) = 500
+    ) = 400
 
     # Add both simulators to experiment
     experiment.add_host(server)

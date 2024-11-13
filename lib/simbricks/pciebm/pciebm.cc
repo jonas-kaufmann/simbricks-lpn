@@ -41,12 +41,15 @@
 
 #include "simbricks/base/if.h"
 #include "simbricks/pcie/if.h"
+#include "simbricks/mem/if.h"
 
 extern "C" {
 #include <simbricks/base/proto.h>
 }
 
 #define DEBUG_PCIEBM 0
+
+#define ENABLE_MEM_SIDE_CHANNEL
 
 namespace pciebm {
 
@@ -453,6 +456,48 @@ bool PcieBM::EventTrigger() {
 void PcieBM::YieldPoll() {
 }
 
+bool PcieBM::MemIfInit() {
+  SimbricksProtoMemHostIntro host_intro;
+  SimbricksProtoMemMemIntro mem_intro;
+
+  if (SimbricksBaseIfInit(&memif_.base, &memParams_)) {
+    std::cerr << __func__ << "MemIfInit SimbricksBaseIfInit failed" << std::endl;
+    return false;
+  }
+
+  if (SimbricksBaseIfConnect(&memif_.base)) {
+    std::cerr << __func__ << "MemIfInit SimbricksBaseIfConnect failed" << std::endl;
+    return false;
+  }
+
+  if (SimbricksBaseIfConnected(&memif_.base)) {
+    std::cerr << __func__ << "MemIfInit SimbricksBaseIfConnected indicates unconnected"
+              << std::endl;
+    return false;
+  }
+
+  // Prepare & send host intro
+  std::memset(&host_intro, 0, sizeof(host_intro));
+  if (SimbricksBaseIfIntroSend(&memif_.base, &host_intro, sizeof(host_intro))) {
+    std::cerr << __func__ << "MemIfInit SimbricksBaseIfIntroSend failed" << std::endl;
+    return false;
+  }
+
+  // Receive device intro
+  size_t len = sizeof(mem_intro);
+  if (SimbricksBaseIfIntroRecv(&memif_.base, &mem_intro, &len)) {
+    std::cerr << __func__ << "MemIfInit SimbricksBaseIfIntroRecv failed" << std::endl;
+    return false;
+  }
+  if (len != sizeof(mem_intro)) {
+    std::cerr << __func__ << "MemIfInit rx dev intro: length is not as expected"
+              << std::endl;
+    return false;
+  }
+
+  return true;
+}
+
 bool PcieBM::PcieIfInit() {
   struct SimbricksBaseIfSHMPool pool;
   struct SimBricksBaseIfEstablishData ests;
@@ -490,13 +535,40 @@ bool PcieBM::PcieIfInit() {
   return true;
 }
 
+#ifdef ENABLE_MEM_SIDE_CHANNEL
+bool PcieBM::ParseArgs(int argc, char *argv[]) {
+  SimbricksPcieIfDefaultParams(&pcieParams_);
+  SimbricksPcieIfDefaultParams(&memParams_);
+
+  if (argc < 4 || argc > 7) {
+    fprintf(stderr,
+            "Usage: PcieBM MemSideChannel-SOCKET PCI-SOCKET SHM [START-TICK] [SYNC-PERIOD] "
+            "[PCI-LATENCY] \n");
+    return false;
+  }
+  if (argc >= 5)
+    main_time_ = strtoull(argv[4], nullptr, 0);
+  if (argc >= 6)
+    pcieParams_.sync_interval = strtoull(argv[5], nullptr, 0) * 1000ULL;
+  if (argc >= 7)
+    pcieParams_.link_latency = strtoull(argv[6], nullptr, 0) * 1000ULL;
+
+  pcieParams_.sock_path = argv[2];
+  shmPath_ = argv[3];
+
+  memParams_.sock_path = argv[1];
+  memParams_.blocking_conn = true;
+  memParams_.sync_mode = kSimbricksBaseIfSyncDisabled;
+  return true;
+}
+#else
 bool PcieBM::ParseArgs(int argc, char *argv[]) {
   SimbricksPcieIfDefaultParams(&pcieParams_);
 
   if (argc < 3 || argc > 6) {
     fprintf(stderr,
             "Usage: PcieBM PCI-SOCKET SHM [START-TICK] [SYNC-PERIOD] "
-            "[PCI-LATENCY]\n");
+            "[PCI-LATENCY] \n");
     return false;
   }
   if (argc >= 4)
@@ -510,6 +582,8 @@ bool PcieBM::ParseArgs(int argc, char *argv[]) {
   shmPath_ = argv[2];
   return true;
 }
+#endif
+
 
 int PcieBM::RunMain() {
   uint64_t next_ts;
@@ -521,6 +595,13 @@ int PcieBM::RunMain() {
   if (!PcieIfInit()) {
     return EXIT_FAILURE;
   }
+
+#ifdef ENABLE_MEM_SIDE_CHANNEL
+  if (!MemIfInit()) {
+    return EXIT_FAILURE;
+  }
+#endif 
+
   bool sync_pci = SimbricksBaseIfSyncEnabled(&pcieif_.base);
   fprintf(stderr, "sync_pci=%d\n", sync_pci);
 
@@ -602,6 +683,61 @@ int PcieBM::RunMain() {
           static_cast<long double>(s_h2d_poll_sync_ + s_n2d_poll_sync_) /
               (s_h2d_poll_suc_ + s_n2d_poll_suc_));
   return 0;
+}
+
+std::unique_ptr<DMAOp> ZeroCostBlockingDma(std::unique_ptr<DMAOp> dma_op){
+  // Send read request
+  volatile union SimbricksProtoMemH2M* msg =
+      SimbricksMemIfH2MOutAlloc(&memif_, 0);
+  if(dma_op->read){
+    volatile SimbricksProtoMemH2MRead& read_msg = msg->read;
+    if (!msg) {
+      std::cout << __func__ << " SimbricksMemIfH2MOutAlloc() failed" << std::endl;
+      throw;
+    }
+    read_msg.addr = dma_op->dma_addr;
+    read_msg.len =  dma_op->len;
+    SimbricksMemIfH2MOutSend(&memif_, msg, SIMBRICKS_PROTO_MEM_H2M_MSG_READ);
+
+    // Poll for incoming message
+    volatile union SimbricksProtoMemM2H* in_msg;
+    while (true) {
+      in_msg =
+          SimbricksMemIfM2HInPoll(&memif_, std::numeric_limits<uint64_t>::max());
+      if (in_msg) {
+        break;
+      }
+      std::this_thread::yield();
+    }
+
+    uint8_t msg_type = SimbricksMemIfM2HInType(&memif_, in_msg);
+    if (msg_type != SIMBRICKS_PROTO_MEM_M2H_MSG_READCOMP) {
+      std::cerr << __func__ << " unexpected msg type " << msg_type << ""
+                << std::endl;
+      throw;
+    }
+    volatile SimbricksProtoMemM2HReadcomp& read_comp = in_msg->readcomp;
+    std::memcpy(dma_op->data, const_cast<uint8_t*>(read_comp.data), dma_op->len);
+    SimbricksMemIfM2HInDone(&memif_, in_msg);
+    return std::move(dma_op);
+  }else{
+    volatile union SimbricksProtoMemH2M* msg =
+      SimbricksMemIfH2MOutAlloc(&memif_, 0);
+    volatile SimbricksProtoMemH2MWrite& write_msg = msg->write;
+
+    if (!msg) {
+      std::cout << __func__ << " SimbricksMemIfH2MOutAlloc() failed" << std::endl;
+      throw;
+    }
+
+    write_msg.addr = dmp_op->dma_addr;
+    write_msg.len = dma_op->len;
+    std::memcpy(const_cast<uint8_t*>(write_msg.data), dma_op->data, dma_op->len);
+
+    SimbricksMemIfH2MOutSend(&memif_, msg,
+                            SIMBRICKS_PROTO_MEM_H2M_MSG_WRITE_POSTED);
+    return nullptr;
+  }
 }
 
 }  // namespace pciebm

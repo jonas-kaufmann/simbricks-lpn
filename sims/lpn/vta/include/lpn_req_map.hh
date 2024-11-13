@@ -129,7 +129,6 @@ class Matcher {
         currReq->acquired_len += to - from;
         // std::cerr << "Matching request" << " tag:" << tag << " addr:" << req->addr << " acc_len:" << currReq->acquired_len <<  " len: " << currReq->len << std::endl;
 
-
         if (to - from < req->len) {
           std::cerr <<"type :" << tag << " Start: " << start << " End: " << end << std::endl;
           std::cerr << "Checking bounds: " << req->addr << " " << req->len << std::endl;

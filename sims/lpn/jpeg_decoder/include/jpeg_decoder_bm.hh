@@ -30,14 +30,13 @@ class JpegDecoderBm : public pciebm::PcieBM {
   }
 };
 
-template <uint64_t BufferLen>
 struct JpegDecoderDmaReadOp : public pciebm::DMAOp {
   JpegDecoderDmaReadOp(uint64_t dma_addr, size_t len)
       : pciebm::DMAOp{0, false, dma_addr, len, buffer_} {
   }
 
  private:
-  uint8_t buffer_[BufferLen];
+  uint8_t buffer_[DMA_BLOCK_SIZE];
 };
 
 struct JpegDecoderDmaWriteOp : public pciebm::DMAOp {

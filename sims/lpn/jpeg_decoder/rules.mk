@@ -30,7 +30,7 @@ bm_objs += $(addprefix $(d), src/func_sim.o)
 bm_objs += $(addprefix $(d), src/lpn_req_map.o)
 bm_objs += $(addprefix $(d), lpn_def/places.o)
 
-$(bin_jpeg_decoder_bm): CPPFLAGS += -O3 -g
+$(bin_jpeg_decoder_bm): CPPFLAGS += -O3
 
 # $(bin_jpeg_decoder_bm): CPPFLAGS += -fsanitize=address -g
 # $(bin_jpeg_decoder_bm): LDFLAGS += -fsanitize=address -static-libasan
@@ -42,8 +42,8 @@ bin_workload_driver := $(d)jpeg_decoder_workload_driver
 workload_driver_objs := $(bin_workload_driver).o $(d)vfio.o
 
 # statically linked binary that can run under any Linux image
-$(workload_driver_objs): CPPFLAGS += -static -g 
-$(bin_workload_driver): LDFLAGS += -static -g
+$(workload_driver_objs): CPPFLAGS += -static
+$(bin_workload_driver): LDFLAGS += -static
 
 $(bin_workload_driver): $(workload_driver_objs)
 

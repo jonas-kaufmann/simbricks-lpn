@@ -14,16 +14,14 @@
 #include <simbricks/pciebm/pciebm.hh>
 
 #include "../lpn_common/lpn_sim.hh"
-#include "lpn_common.bkp.sbk/lpn_sim.hh"
 #include "lpn_def/lpn_def.hh"
 #include "sims/lpn/jpeg_decoder/include/jpeg_decoder_regs.hh"
 #include "sims/lpn/lpn_common/place_transition.hh"
 #include "sims/lpn/jpeg_decoder/include/lpn_req_map.hh"
 #include "sims/lpn/jpeg_decoder/include/driver.hh"
 
+#define JPEGD_DEBUG 0
 
-#define FREQ_MHZ 150000000
-#define FREQ_MHZ_NORMALIZED 150
 #define MASK5 0b11111
 #define MASK6 0b111111
 
@@ -81,6 +79,8 @@ void sigusr2_handler(int dummy) {
 
 }  // namespace
 
+static uint64_t outstanding_read = 0;
+
 void JpegDecoderBm::SetupIntro(struct SimbricksProtoPcieDevIntro &dev_intro) {
   dev_intro.pci_vendor_id = 0xdead;
   dev_intro.pci_device_id = 0xbeef;
@@ -132,8 +132,8 @@ void JpegDecoderBm::RegWrite(uint8_t bar, uint64_t addr, const void *src,
   // start decoding image
   if (!old_is_busy && !(old_ctrl & CTRL_REG_START_BIT) &&
       Registers_.ctrl & CTRL_REG_START_BIT) {
-    std::cout << "DMA write completed; bytes written: " << BytesWritten_ << std::endl;
-    std::cout << " p8 token len " <<  p8.tokensLen() << std::endl;
+    // std::cout << "DMA write completed; bytes written: " << BytesWritten_ << std::endl;
+    // std::cout << " p8 token len " <<  p8.tokensLen() << std::endl;
     ctl_func.Reset();
     // Issue DMA for fetching the image data
     Registers_.isBusy = 1;
@@ -146,17 +146,16 @@ void JpegDecoderBm::RegWrite(uint8_t bar, uint64_t addr, const void *src,
 
     // enqueue the one and only request for the whole image
     enqueueReq(0, src_addr, (Registers_.ctrl & CTRL_REG_LEN_MASK) + EXTRA_BYTES, 0, READ_REQ);
-    std::cerr << "jpeg decoder next" << "\n";
 
    
     func_thread = std::thread(jpeg_decode_funcsim, src_addr, Registers_.ctrl & CTRL_REG_LEN_MASK, dst_addr, TimePs());
     WaitForSim(ctl_func);
 
-    auto dma_op = std::make_unique<JpegDecoderDmaReadOp<DMA_BLOCK_SIZE>>(
-        src_addr, BytesRead_);
+    auto dma_op = std::make_unique<JpegDecoderDmaReadOp>(src_addr, BytesRead_);
 
     // IntXIssue(false); // deassert interrupt
     IssueDma(std::move(dma_op));
+    outstanding_read += 1;
     return;
   }
 
@@ -169,7 +168,8 @@ void JpegDecoderBm::DmaComplete(std::unique_ptr<pciebm::DMAOp> dma_op) {
   // handle response to DMA read request
   UpdateClk(t_list, T_SIZE, TimePs());
   if (!dma_op->write) {
-    // std::cout << "DMA read completed" << " len: " << dma_op->len << std::endl;
+    outstanding_read -= 1;
+    // std::cout << "DMA read completed" << " len: " << dma_op->len  << " outstanding: "<<outstanding_read << std::endl;
     putData(dma_op->dma_addr, dma_op->len, dma_op->tag, READ_REQ, TimePs(), dma_op->data);
 
     KickSim(ctl_func, dma_op->tag);
@@ -197,26 +197,29 @@ void JpegDecoderBm::DmaComplete(std::unique_ptr<pciebm::DMAOp> dma_op) {
 
     // issue DMA request for next block
     uint32_t total_bytes = (Registers_.ctrl & CTRL_REG_LEN_MASK) + EXTRA_BYTES; 
-    if (BytesRead_ < total_bytes) {
-      uint64_t len =
-          std::min<uint64_t>(total_bytes - BytesRead_, DMA_BLOCK_SIZE);
+    // while(outstanding_read < 16){
+      if (BytesRead_ < total_bytes) {
+        uint64_t len =
+            std::min<uint64_t>(total_bytes - BytesRead_, DMA_BLOCK_SIZE);
 
-      // std::cout << "issue DMA read for next block" << " len: " << len << " total: " << total_bytes << std::endl;
-      // reuse dma_op
-      dma_op->dma_addr = Registers_.src + BytesRead_;
-      dma_op->len = len;
-      IssueDma(std::move(dma_op));
+        // std::cout <<TimePs()/1000 << " issue DMA read for next block" << " len: " << len << " total: " << total_bytes << " outstanding: "<< outstanding_read << std::endl;
+        // reuse dma_op
+        auto dma_op =
+            std::make_unique<JpegDecoderDmaReadOp>(Registers_.src + BytesRead_, len);
+        IssueDma(std::move(dma_op));
+        outstanding_read += 1;
 
-      BytesRead_ += len;
-      return;
-    }
+        BytesRead_ += len;
+      }
+    // }
+    // std::cout << "outstanding read " << outstanding_read << std::endl;
   }
   // DMA write completed
   else {
     BytesWritten_ += dma_op->len;
-    std::cout << "DMA write completed; bytes written: " << BytesWritten_ <<  " total:" << GetSizeOfRGB() * 2 << std::endl;
+    // std::cout << "DMA write completed; bytes written: " << BytesWritten_ <<  " total:" << GetSizeOfRGB() * 2 << std::endl;
     if (BytesWritten_ == GetSizeOfRGB() * 2) {
-      std::cout << "Everything finished ; bytes written: " << BytesWritten_ << std::endl;
+      // std::cout << "Everything finished ; bytes written: " << BytesWritten_ << std::endl;
       EndSim(ctl_func);
       func_thread.join();
       ctl_func.exited = true;
@@ -271,7 +274,7 @@ void JpegDecoderBm::ExecuteEvent(std::unique_ptr<pciebm::TimedEvent> evt) {
   size_t rgb_cur_len = GetCurRGBOffset();
   if (rgb_cur_len > 0) {
     size_t rgb_consumed_len = GetConsumedRGBOffset();
-    std::cout << "rgb_cur_len: " << rgb_cur_len << " rgb_consumed_len: " << rgb_consumed_len << std::endl;
+    // std::cout << "rgb_cur_len: " << rgb_cur_len << " rgb_consumed_len: " << rgb_consumed_len << std::endl;
     if (rgb_cur_len > rgb_consumed_len) {
       size_t pixels_to_write = rgb_cur_len - rgb_consumed_len;
       assert(pixels_to_write % DMA_BLOCK_SIZE == 0);
@@ -288,16 +291,17 @@ void JpegDecoderBm::ExecuteEvent(std::unique_ptr<pciebm::TimedEvent> evt) {
         decoded_img_data[i] = pixel;
       }
       // split image into multiple DMAs and write back
-      for (size_t i = 0; i < pixels_to_write * 2; i += DMA_BLOCK_SIZE) {
+      #define WRITE_DMA_BLOCK_SIZE 4
+      for (size_t i = 0; i < pixels_to_write * 2; i += WRITE_DMA_BLOCK_SIZE) {
         // the `* 2` is required since we have two bytes per pixel
         uint64_t dma_addr = Registers_.dst + rgb_consumed_len * 2 + i;
         auto dma_op =
-            std::make_unique<JpegDecoderDmaWriteOp>(dma_addr, DMA_BLOCK_SIZE);
+            std::make_unique<JpegDecoderDmaWriteOp>(dma_addr, WRITE_DMA_BLOCK_SIZE);
         uint8_t *img_data_src =
             reinterpret_cast<uint8_t *>(decoded_img_data.get()) + i;
-        std::memcpy(dma_op->buffer, img_data_src, DMA_BLOCK_SIZE);
+        std::memcpy(dma_op->buffer, img_data_src, WRITE_DMA_BLOCK_SIZE);
         IssueDma(std::move(dma_op));
-        std::cout << "issue DMA write for decoded image" << " len: " << DMA_BLOCK_SIZE << std::endl;
+        // std::cout << "issue DMA write for decoded image" << " len: " << DMA_BLOCK_SIZE << std::endl;
       }
       UpdateConsumedRGBOffset(rgb_cur_len);
     }

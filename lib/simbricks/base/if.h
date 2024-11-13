@@ -199,6 +199,7 @@ static inline uint8_t SimbricksBaseIfInType(
  */
 static inline volatile union SimbricksProtoBaseMsg *SimbricksBaseIfInPeek(
     struct SimbricksBaseIf *base_if, uint64_t timestamp) {
+  // printf("base_if %p InPeek; pos %ld\n", base_if, base_if->in_pos);
   volatile union SimbricksProtoBaseMsg *msg =
       (volatile union SimbricksProtoBaseMsg *)(void *)((uint8_t *)
                                                            base_if->in_queue +
@@ -294,6 +295,8 @@ static inline int SimbricksBaseIfInTerminated(struct SimbricksBaseIf *base_if) {
  */
 static inline volatile union SimbricksProtoBaseMsg *SimbricksBaseIfOutAlloc(
     struct SimbricksBaseIf *base_if, uint64_t timestamp) {
+    
+    // printf("base_if %p OutAllo; pos %ld\n", base_if, base_if->out_pos);
   volatile union SimbricksProtoBaseMsg *msg =
       (volatile union SimbricksProtoBaseMsg *)(void *)((uint8_t *)
                                                            base_if->out_queue +

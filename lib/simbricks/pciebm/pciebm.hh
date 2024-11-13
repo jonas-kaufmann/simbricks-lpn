@@ -36,6 +36,7 @@
 #include <simbricks/base/cxxatomicfix.h>
 extern "C" {
 #include "simbricks/pcie/if.h"
+#include "simbricks/mem/if.h"
 }
 
 namespace pciebm {
@@ -124,6 +125,8 @@ class PcieBM {
    * executed. If no scheduled event exists, returns an empty std::optional */
   std::optional<uint64_t> EventNext();
 
+  std::unique_ptr<DMAOp> ZeroCostBlockingDma(std::unique_ptr<DMAOp> dma_op);
+
  private:
   uint64_t main_time_ = 0;
   uint32_t dma_read_max_pending_;
@@ -140,7 +143,10 @@ class PcieBM {
   struct SimbricksBaseIfParams pcieParams_;
   const char *shmPath_ = nullptr;
   struct SimbricksPcieIf pcieif_;
+  static SimbricksMemIf memif_;
   struct SimbricksProtoPcieDevIntro dintro_;
+
+  struct SimbricksBaseIfParams memParams_;
 
   /* for signal handlers */
   volatile bool exiting_ = false;
@@ -178,6 +184,7 @@ class PcieBM {
 
   void YieldPoll();
   bool PcieIfInit();
+  bool MemIfInit();
 
  public:
   PcieBM(uint32_t dma_max_pending) : dma_read_max_pending_(dma_max_pending), dma_write_max_pending_(dma_max_pending) {}
@@ -187,6 +194,7 @@ class PcieBM {
 
   /** Run the simulation */
   int RunMain();
+  int MemRunMain();
 
   /* This handler should be invoked when receiving a SIGINT signal. */
   void SIGINTHandler();
