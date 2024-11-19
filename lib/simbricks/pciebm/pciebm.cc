@@ -38,12 +38,13 @@
 #include <ctime>
 #include <iostream>
 #include <memory>
+#include <thread>
 
 #include "simbricks/base/if.h"
 #include "simbricks/pcie/if.h"
-#include "simbricks/mem/if.h"
 
 extern "C" {
+#include <simbricks/mem/if.h>
 #include <simbricks/base/proto.h>
 }
 
@@ -538,7 +539,7 @@ bool PcieBM::PcieIfInit() {
 #ifdef ENABLE_MEM_SIDE_CHANNEL
 bool PcieBM::ParseArgs(int argc, char *argv[]) {
   SimbricksPcieIfDefaultParams(&pcieParams_);
-  SimbricksPcieIfDefaultParams(&memParams_);
+  SimbricksMemIfDefaultParams(&memParams_);
 
   if (argc < 4 || argc > 7) {
     fprintf(stderr,
@@ -555,6 +556,13 @@ bool PcieBM::ParseArgs(int argc, char *argv[]) {
 
   pcieParams_.sock_path = argv[2];
   shmPath_ = argv[3];
+
+  printf("MemSideChannel-SOCKET: %s\n", argv[1]);
+  printf("PCI-SOCKET: %s\n", argv[2]);
+  printf("SHM: %s\n", argv[3]);
+  printf("START-TICK: %lu\n", main_time_);
+  printf("SYNC-PERIOD: %lu\n", pcieParams_.sync_interval);
+  printf("PCI-LATENCY: %lu\n", pcieParams_.link_latency);
 
   memParams_.sock_path = argv[1];
   memParams_.blocking_conn = true;
@@ -592,18 +600,23 @@ int PcieBM::RunMain() {
   memset(&dintro_, 0, sizeof(dintro_));
   SetupIntro(dintro_);
 
+  fprintf(stderr, "Intro finished \n");
+
   if (!PcieIfInit()) {
     return EXIT_FAILURE;
   }
+  fprintf(stderr, "PcieIfInit finished \n");
 
 #ifdef ENABLE_MEM_SIDE_CHANNEL
   if (!MemIfInit()) {
     return EXIT_FAILURE;
   }
+  fprintf(stderr, "MemIfInit finished \n");
 #endif 
 
+
   bool sync_pci = SimbricksBaseIfSyncEnabled(&pcieif_.base);
-  fprintf(stderr, "sync_pci=%d\n", sync_pci);
+  fprintf(stderr, "PcieBM sync_pci=%d\n", sync_pci);
 
   while (!exiting_) {
     // send sync messages
@@ -685,11 +698,11 @@ int PcieBM::RunMain() {
   return 0;
 }
 
-std::unique_ptr<DMAOp> ZeroCostBlockingDma(std::unique_ptr<DMAOp> dma_op){
+std::unique_ptr<DMAOp> PcieBM::ZeroCostBlockingDma(std::unique_ptr<DMAOp> dma_op){
   // Send read request
   volatile union SimbricksProtoMemH2M* msg =
       SimbricksMemIfH2MOutAlloc(&memif_, 0);
-  if(dma_op->read){
+  if(!dma_op->write){
     volatile SimbricksProtoMemH2MRead& read_msg = msg->read;
     if (!msg) {
       std::cout << __func__ << " SimbricksMemIfH2MOutAlloc() failed" << std::endl;
@@ -719,7 +732,8 @@ std::unique_ptr<DMAOp> ZeroCostBlockingDma(std::unique_ptr<DMAOp> dma_op){
     volatile SimbricksProtoMemM2HReadcomp& read_comp = in_msg->readcomp;
     std::memcpy(dma_op->data, const_cast<uint8_t*>(read_comp.data), dma_op->len);
     SimbricksMemIfM2HInDone(&memif_, in_msg);
-    return std::move(dma_op);
+    // return std::move(dma_op);
+    return dma_op;
   }else{
     volatile union SimbricksProtoMemH2M* msg =
       SimbricksMemIfH2MOutAlloc(&memif_, 0);
@@ -730,7 +744,7 @@ std::unique_ptr<DMAOp> ZeroCostBlockingDma(std::unique_ptr<DMAOp> dma_op){
       throw;
     }
 
-    write_msg.addr = dmp_op->dma_addr;
+    write_msg.addr = dma_op->dma_addr;
     write_msg.len = dma_op->len;
     std::memcpy(const_cast<uint8_t*>(write_msg.data), dma_op->data, dma_op->len);
 

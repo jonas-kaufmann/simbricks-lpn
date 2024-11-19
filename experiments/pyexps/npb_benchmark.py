@@ -27,6 +27,9 @@ import simbricks.orchestration.simulators as sim
 
 experiments = []
 host_sim_choices = ["gem5_o3"]
+binaries = ["bt", "cg", "ep", "ft", "is", "lu", "mg", "sp"]
+classes = ["S", "W", "A", "B", "C", "D"]
+threads = ["1", "2", "4", "8"]
 
 
 class VtaNode(node.NodeConfig):
@@ -34,7 +37,7 @@ class VtaNode(node.NodeConfig):
     def __init__(self) -> None:
         super().__init__()
         # Use locally built disk image
-        self.disk_image = "vta_classification"
+        self.disk_image = "npb"
         # Bump amount of system memory
         self.memory = 4 * 1024
         # Reserve physical range of memory for the VTA user-space driver
@@ -69,17 +72,11 @@ class VtaNode(node.NodeConfig):
 
 class NpbBenchmark(node.AppConfig):
 
-
-    def config_files(self):
-        # mount TVM inference script in simulated server under /tmp/guest
-        return {
-            
-            "test.c":
-                open(
-                    "/home/jiacma/simbricks-lpn/test.c",
-                    "rb",
-                )
-        }
+    def __init__(self, binary, class_, threads) -> None:
+        super().__init__()
+        self.binary = binary
+        self.class_ = class_
+        self.threads = threads
 
     def prepare_pre_cp(self):
         cmds = super().prepare_pre_cp()
@@ -90,57 +87,60 @@ class NpbBenchmark(node.AppConfig):
     
     def run_cmds(self, node) -> List[str]:
         # cmds = ["cd /tmp/guest && ./test"]
-        cmds = []
-        binaries = [
-            "mg.W"
-        ]
+        cmds = ["cd /root/npb-new/bin"]
+        num_thread = int(self.threads)
         cmds.extend([
-            "cd /root/npb/bin", *[f"./{binary}" for binary in binaries]
+            f"OMP_NUM_THREADS={self.threads} taskset -c 0-{num_thread-1} ./{self.binary}.{self.class_}",
+            f"OMP_NUM_THREADS={self.threads} taskset -c 0-{num_thread-1} ./{self.binary}.{self.class_}"
         ])
+        # avoid the output are eaten by the shell
+        cmds.extend(["ls -l /root/npb-new/bin"])
         # binaries = [
         #     "bt.W", "cg.W", "ep.W", "ft.W", "is.W", "lu.W", "mg.W", "sp.W"
         # ]
         return cmds
 
-for host_sim in host_sim_choices:
+for thread in threads:
+    for binary in binaries:
+        for class_ in classes:
+            for host_sim in host_sim_choices:
+                e = exp.Experiment(f"npb_benchmark-{host_sim}-{binary}-{class_}-{thread}")
+                e.checkpoint = True
 
-    e = exp.Experiment(f"npb_benchmark-{host_sim}")
-    e.checkpoint = True
+                node_config = VtaNode()
+                node_config.nockp = not e.checkpoint
+                node_config.memory = 3072
+                node_config.cores = 4
 
-    node_config = VtaNode()
-    node_config.nockp = not e.checkpoint
-    node_config.memory = 3072
-    node_config.cores = 1
+                node_config.app = NpbBenchmark(binary, class_, thread)
 
-    node_config.app = NpbBenchmark()
+                if host_sim == "gem5_kvm":
+                    host = sim.Gem5Host(node_config)
+                    host.cpu_type = 'X86KvmCPU'
+                    host.name = 'host0'
+                    host.sync = False
+                    host.wait = True
+                elif host_sim == "gem5_o3":
+                    host = sim.Gem5Host(node_config)
+                    host.cpu_type = 'O3CPU'
+                    host.variant = 'fast'
+                    host.cpu_freq = '3GHz'
+                    host.name = 'host0'
+                    host.sync = False
+                    host.wait = True
 
-    if host_sim == "gem5_kvm":
-        host = sim.Gem5Host(node_config)
-        host.cpu_type = 'X86KvmCPU'
-        host.name = 'host0'
-        host.sync = True
-        host.wait = True
-    elif host_sim == "gem5_o3":
-        host = sim.Gem5Host(node_config)
-        host.cpu_type = 'O3CPU'
-        host.variant = 'fast'
-        host.cpu_freq = '3GHz'
-        host.name = 'host0'
-        host.sync = True
-        host.wait = True
+                # This is just a dummy to have a simulator to synchronize with. We need this
+                # to evaluate the overhead for scheduling an event for synchronization every
+                # x ns. You need to uncomment the two lines below to enable injecting these
+                # synchronization events.
+                # vta = sim.VTADev()
+                # vta.name = 'vta0'
+                # host.add_pcidev(vta)
 
-    # This is just a dummy to have a simulator to synchronize with. We need this
-    # to evaluate the overhead for scheduling an event for synchronization every
-    # x ns. You need to uncomment the two lines below to enable injecting these
-    # synchronization events.
-    vta = sim.VTADev()
-    vta.name = 'vta0'
-    # host.add_pcidev(vta)
+                # vta.pci_latency = vta.sync_period = host.pci_latency = \
+                    # host.sync_period = host.pci_latency = host.sync_period = 100000000  #100 us
 
-    vta.pci_latency = vta.sync_period = host.pci_latency = \
-        host.sync_period = host.pci_latency = host.sync_period = 10000  #1 us
+                e.add_host(host)
+                # e.add_pcidev(vta)
 
-    e.add_host(host)
-    # e.add_pcidev(vta)
-
-    experiments.append(e)
+                experiments.append(e)

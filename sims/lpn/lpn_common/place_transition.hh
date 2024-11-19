@@ -1,7 +1,6 @@
 #ifndef __LPN_PLACE_Transition__
 #define __LPN_PLACE_Transition__
 #include <bits/stdint-uintn.h>
-#define N_ELEM 10
 #include <string>
 #include <map>
 #include <set>
@@ -14,10 +13,11 @@
 #define QT_type(T) std::deque<T>
 #define NEW_QT(T, x) QT_type(T)* x = new QT_type(T)
 #define NEW_TOKEN(T, x) T* x = new T;
+#define NEW_TOKEN_WO_DECL(T) new T;
 
 namespace lpn {
-
-const uint64_t LARGE = (1<<63)-1; 
+  
+const uint64_t LARGE = (1ULL << 63); 
 extern uint64_t CLK;
 
 }
@@ -25,7 +25,6 @@ extern uint64_t CLK;
 class BaseToken {
 public:
   uint64_t ts=0;
-  virtual void print_token() {}
   virtual std::map<std::string, int>* asDictionary(){
     return nullptr;
   }
@@ -33,6 +32,7 @@ public:
 };
 
 class EmptyToken: public BaseToken{
+public:
   std::map<std::string, int>* asDictionary() override{
     return nullptr;
   }
@@ -46,6 +46,11 @@ class BasePlace {
 public:
     std::string id;
     explicit BasePlace(std::string asid) : id(std::move(asid)) {}
+    
+    // for plain place
+    bool plain = false;
+    uint64_t tk_counter = 0;
+    uint64_t tk_ts = 0;
     
     virtual int tokensLen() const {
       return 0;
@@ -72,6 +77,9 @@ public:
     }
     virtual int initSize() const {
       return 0;
+    }
+    virtual void logAllTokens() const {
+      return;
     }
     virtual BaseToken* initAt(int idx) const {
       return nullptr;
@@ -105,9 +113,16 @@ class Place : public BasePlace
     return tokens.size();
   }
   uint64_t tsAt(int idx) const override{
+    if(plain){
+      return tk_ts;
+    }
     return tokens[idx]->ts;
   } 
   void setTokenTs(int idx, uint64_t ts) override{
+    if(plain){
+      tk_ts = ts;
+      return;
+    }
     tokens[idx]->ts = ts;
   }
   std::string getId() const override {
@@ -119,35 +134,42 @@ class Place : public BasePlace
   void pushToken(BaseToken* token) final{
     tokens.push_back(static_cast<TokenType*>(token));
   }
+  void logAllTokens() const final{
+    int i = 0;
+    for(auto& token: tokens){
+      std::cout << id << ": " << i << std::endl;
+      std::map<std::string, int>* asmap = token->asDictionary();
+      for (const auto& pair : *asmap) {
+        std::cout << pair.first << ": " << pair.second << std::endl;
+      }
+      std::cout << token->ts << std::endl;
+      i++;
+    }
+  }
   void reset() override{
+      tk_counter = 0;
       tokens.clear();
   }
 };
-
-#define create_input_vector_list() std::vector<BasePlace*> p_input; 
-#define create_input_w_vector_list() std::function<int()> pi_w[N_ELEM]; 
-#define create_input_guard_vector_list() std::function<bool()> pi_guard[N_ELEM]={NULL}; 
-#define create_input_threshold_vector_list() int pi_w_threshold[N_ELEM];
-#define create_output_vector_list() std::vector<BasePlace*> p_output; std::function<void(BasePlace*)> po_w[N_ELEM];
 
 using Transition = struct Transition
 {
   public:
     std::string id;
     // int (*delay_f)();
-    std::function<uint64_t()> delay_f;
-
-    create_input_vector_list();
-    create_input_w_vector_list();
-    create_input_threshold_vector_list();
-    create_input_guard_vector_list();
-    create_output_vector_list();
-    
-    std::deque<int> consume_tokens=std::deque<int>(0, 0);
+    std::function<uint64_t()> delay_f;  
+    std::vector<BasePlace*> p_input; 
+    std::vector<BasePlace*> p_output;
+    std::vector<std::function<int()>> pi_w;
+    std::vector<std::function<void(BasePlace*)>> po_w;
+    std::vector<std::function<int()>> pi_w_threshold;
+    std::vector<std::function<bool()>> pi_guard;
+    std::function<uint64_t()> pip;  
+     
+    std::deque<int> consume_tokens;
     
     uint64_t delay_event=lpn::LARGE; //-1 if no event
     int disable = 0;
-    int pip=-1; 
     uint64_t pip_ts = 0;
     int count=0;
     uint64_t time=0;

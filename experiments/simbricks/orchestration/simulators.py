@@ -1261,3 +1261,27 @@ class VTALpnBmDev(PCIDevSim):
             f'{env.dev_pci_path(self)} {env.dev_shm_path(self)} '
             f'{self.start_tick} {self.sync_period} {self.pci_latency} '
         )
+
+
+class ProtoaccLpnBmDev(PCIDevSim):
+    """Behavioral model of the VTA based on a Latency Petri Net."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.start_tick = 0
+        self.name = 'pac_lb'
+        self.deps = []
+
+    def resreq_mem(self) -> int:
+        return 512  # this is a guess
+
+    def run_cmd(self, env: ExpEnv) -> str:
+        return (
+            f'{env.repodir}/sims/lpn/protoacc/protoacc_bm '
+            f'{env.dev_mem_path(self)} '
+            f'{env.dev_pci_path(self)} {env.dev_shm_path(self)} '
+            f'{self.start_tick} {self.sync_period} {self.pci_latency} '
+        )
+
+    def dependencies(self) -> tp.List[Simulator]:
+        return self.deps

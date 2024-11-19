@@ -34,6 +34,7 @@ VTA_IMAGE := $(d)output-vta/vta
 VTA_DETECT_IMAGE := $(d)output-vta_detect/vta_detect
 VTA_CLASSIFICATION_IMAGE := $(d)output-vta_classification/vta_classification
 VTA_CLASSIFICATION_SIMICS_IMAGE := $(d)output-vta_classification-simics/vta_classification-simics
+NPB_IMAGE := $(d)output-npb/npb
 COMPRESSED_IMAGES ?= false
 
 IMAGES := $(BASE_IMAGE) $(NOPAXOS_IMAGE) $(MEMCACHED_IMAGE) $(VTA_IMAGE) $(VTA_DETECT_IMAGE) $(VTA_CLASSIFICATION_IMAGE) $(VTA_CLASSIFICATION_SIMICS_IMAGE)
@@ -130,6 +131,14 @@ $(VTA_IMAGE): $(packer) $(QEMU) $(BASE_IMAGE) \
       scripts/cleanup.sh)
 	rm -rf $(dir $@)
 	cd $(img_dir) && ./packer-wrap.sh base vta extended-image.pkr.hcl \
+	    $(COMPRESSED_IMAGES)
+	touch $@
+
+$(NPB_IMAGE): $(packer) $(QEMU) $(BASE_IMAGE) \
+    $(addprefix $(d), extended-image.pkr.hcl scripts/install-npb.sh \
+      scripts/cleanup.sh)
+	rm -rf $(dir $@)
+	cd $(img_dir) && ./packer-wrap.sh base npb extended-image.pkr.hcl \
 	    $(COMPRESSED_IMAGES)
 	touch $@
 

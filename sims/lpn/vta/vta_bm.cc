@@ -1,11 +1,8 @@
 #include "include/vta_bm.hh"
 #include "include/vta/hw_spec.h"
-
-
 #include <bits/stdint-uintn.h>
 #include <bits/types/siginfo_t.h>
 #include <signal.h>
-
 #include <cstddef>
 #include <cstdlib>
 #include <cstring>
@@ -13,9 +10,7 @@
 #include <memory>
 #include <thread>
 #include <sys/time.h>
-
 #include <simbricks/pciebm/pciebm.hh>
-
 #include "sims/lpn/vta/include/vta_regs.hh"
 #include "sims/lpn/lpn_common/place_transition.hh"
 #include "sims/lpn/lpn_common/lpn_sim.hh"
@@ -118,7 +113,7 @@ void VTABm::RegRead(uint8_t bar, uint64_t addr, void *dest,
     return;
   }
   //hack
-  // Registers_.status = 0x2;
+  Registers_.status = 0x2;
 
   std::memcpy(dest, reinterpret_cast<uint8_t *>(&Registers_) + addr, len);
 }
@@ -126,7 +121,7 @@ void VTABm::RegRead(uint8_t bar, uint64_t addr, void *dest,
 
 void VTABm::RegWrite(uint8_t bar, uint64_t addr, const void *src,
                              size_t len) {
-  // return ;
+  return ;
   
   if (bar != 0) {
     std::cerr << "error: register write to unmapped BAR " << bar << "\n";

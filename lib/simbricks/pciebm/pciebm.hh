@@ -125,7 +125,7 @@ class PcieBM {
    * executed. If no scheduled event exists, returns an empty std::optional */
   std::optional<uint64_t> EventNext();
 
-  std::unique_ptr<DMAOp> ZeroCostBlockingDma(std::unique_ptr<DMAOp> dma_op);
+  
 
  private:
   uint64_t main_time_ = 0;
@@ -143,7 +143,7 @@ class PcieBM {
   struct SimbricksBaseIfParams pcieParams_;
   const char *shmPath_ = nullptr;
   struct SimbricksPcieIf pcieif_;
-  static SimbricksMemIf memif_;
+  struct SimbricksMemIf memif_;
   struct SimbricksProtoPcieDevIntro dintro_;
 
   struct SimbricksBaseIfParams memParams_;
@@ -202,6 +202,8 @@ class PcieBM {
   void SIGUSR1Handler();
   /* This handler should be invoked when receiving a SIGUSR2 signal. */
   void SIGUSR2Handler();
+
+  std::unique_ptr<DMAOp> ZeroCostBlockingDma(std::unique_ptr<DMAOp> dma_op);
 };
 
 }  // namespace pciebm
