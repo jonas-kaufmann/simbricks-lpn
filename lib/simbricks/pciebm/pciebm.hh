@@ -141,12 +141,13 @@ class PcieBM {
   std::unordered_map<uintptr_t, std::unique_ptr<DMAOp>> dma_write_pending_{};
 
   struct SimbricksBaseIfParams pcieParams_;
-  const char *shmPath_ = nullptr;
+  struct SimbricksBaseIfParams memParams_;
+  const char *pcieShmPath_ = nullptr;
+  const char *memShmPath_ = nullptr;
   struct SimbricksPcieIf pcieif_;
   struct SimbricksMemIf memif_;
   struct SimbricksProtoPcieDevIntro dintro_;
-
-  struct SimbricksBaseIfParams memParams_;
+  struct SimbricksProtoMemHostIntro mintro_;
 
   /* for signal handlers */
   volatile bool exiting_ = false;
@@ -183,7 +184,7 @@ class PcieBM {
   void DmaTrigger();
 
   void YieldPoll();
-  bool PcieIfInit();
+  bool SimBricksIfsInit();
   bool MemIfInit();
 
  public:

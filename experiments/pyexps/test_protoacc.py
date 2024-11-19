@@ -29,19 +29,6 @@ experiments = []
 host_sim_choices = ["gem5_o3", "gem5_kvm", "qemu_kvm"]
 which_bench = ["bench0","bench1","bench2","bench3","bench4","bench5"]
 
-class MemSidechannel(sim.Simulator):
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.name = "mem_sidechannel"
-        self.deps = []
-
-    def full_name(self) -> str:
-        return self.name
-
-    def dependencies(self):
-        return self.deps
-
 
 class CustomGem5(sim.Gem5Host):
 
@@ -59,17 +46,12 @@ class CustomGem5(sim.Gem5Host):
 
         for mem_sidechannel in self.mem_sidechannels:
             cmd += (
-                '--simbricks-mem_sidechannel=listen'
+                '--simbricks-mem_sidechannel=connect'
                 f':{env.dev_mem_path(mem_sidechannel)}'
-                f':{env.dev_shm_path(mem_sidechannel)}_ms'
             )
             cmd += ' '
 
         return cmd
-
-    def sockets_wait(self, env: sim.ExpEnv):
-        for mem_sidechannel in self.mem_sidechannels:
-            return [env.dev_mem_path(mem_sidechannel)]
 
 
 class VtaNode(node.NodeConfig):

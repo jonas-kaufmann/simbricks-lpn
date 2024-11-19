@@ -1278,10 +1278,15 @@ class ProtoaccLpnBmDev(PCIDevSim):
     def run_cmd(self, env: ExpEnv) -> str:
         return (
             f'{env.repodir}/sims/lpn/protoacc/protoacc_bm '
-            f'{env.dev_mem_path(self)} '
+            f'{env.dev_mem_path(self)} {env.dev_shm_path(self)}_ms '
             f'{env.dev_pci_path(self)} {env.dev_shm_path(self)} '
             f'{self.start_tick} {self.sync_period} {self.pci_latency} '
         )
 
     def dependencies(self) -> tp.List[Simulator]:
         return self.deps
+
+    def sockets_wait(self, env: ExpEnv) -> tp.List[str]:
+        wait = super().sockets_wait(env)
+        wait.append(env.dev_mem_path(self))
+        return wait
