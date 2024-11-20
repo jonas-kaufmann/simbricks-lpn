@@ -484,7 +484,7 @@ bool PcieBM::SimBricksIfsInit() {
     return false;
   }
 
-  if (SimbricksBaseIfInit(&pcieif_.base, &memParams_)) {
+  if (SimbricksBaseIfInit(&memif_.base, &memParams_)) {
     std::cerr << "MemIfInit: SimbricksBaseIfInit failed\n";
     return false;
   }
