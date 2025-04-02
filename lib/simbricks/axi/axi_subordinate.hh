@@ -394,7 +394,7 @@ void AXISubordinateWrite<BytesAddr, BytesId, BytesData, MaxInFlight>::step(
     assert(aw_burst_ == 1 && "we currently only support INCR bursts");
     size_t len = step_size * (aw_len_ + 1);
 #ifdef AXI_W_DEBUG
-    std::cout << main_time_/1000 << " AXI W: new request id=" << axi_id
+    std::cout << main_time_/1000 << " AXI W: new request id=" << axi_id << std::hex
               << " addr=" << addr << " len=" << len
               << " step_size=" << step_size << "\n";
 #endif

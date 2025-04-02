@@ -15,7 +15,7 @@ inference_device_opts = [
     node.TvmDeviceType.CPU,
     node.TvmDeviceType.CPU_AVX512,
 ]
-vta_clk_freq_opts = [100, 200, 400, 800, 2000]
+vta_clk_freq_opts = [100, 160, 200, 400, 800, 2000]
 model_name_opts = [
     "resnet18_v1",
     "resnet34_v1",
@@ -87,6 +87,7 @@ class TvmClassifyLocal(node.AppConfig):
         cmds = []
         cmds.extend([
             # start RPC server
+            f"export TVM_NUM_THREADS=1 ",
             f"VTA_DEVICE=0000:00:{(self.pci_vta_id):02d}.0 python3 -m"
             " vta.exec.rpc_server &"
             # wait for RPC server to start
@@ -168,7 +169,7 @@ for (
     vta_ops
 ):
     experiment = exp.Experiment(
-        f"classify-{model_name}-{inference_device.value}-{host_var}-{vta_op}-{cores}-{vta_clk_freq}"
+        f"classify_160-{model_name}-{inference_device.value}-{host_var}-{vta_op}-{cores}-{vta_clk_freq}"
     )
     pci_vta_id = 2
     sync = False
@@ -195,9 +196,21 @@ for (
             def __init__(self, node_config: sim.NodeConfig) -> None:
                 super().__init__(node_config)
                 self.cpu_type = 'O3CPU'
-                # self.variant = 'opt'
+                self.cpu_freq = '4.2GHz'
+                self.mem_sidechannels = []
                 self.variant = 'fast'
-                self.cpu_freq = '3GHz'
+
+            def run_cmd(self, env: sim.ExpEnv) -> str:
+                cmd = super().run_cmd(env)
+                cmd += ' '
+
+                for mem_sidechannel in self.mem_sidechannels:
+                    cmd += (
+                        '--simbricks-mem_sidechannel=connect'
+                        f':{env.dev_mem_path(mem_sidechannel)}'
+                    )
+                    cmd += ' '
+                return cmd
 
         HostClass = CustomGem5
         sync = True
@@ -229,15 +242,23 @@ for (
             vta = sim.VTADev()
         else:
             vta = sim.VTALpnBmDev()
+            if host_var == "gem5_o3":
+                server.mem_sidechannels.append(vta)
+                
         vta.clock_freq = vta_clk_freq
         server.add_pcidev(vta)
         if host_var == "simics":
             server.debug_messages = False
             server.start_ts = vta.start_tick = int(60 * 10**12)
 
+    # server.pci_latency = server.sync_period = vta.pci_latency = (
+    #     vta.sync_period
+    # ) = 400
+
+
     server.pci_latency = server.sync_period = vta.pci_latency = (
         vta.sync_period
-    ) = 400
+    ) = 500
 
     # Add both simulators to experiment
     experiment.add_host(server)

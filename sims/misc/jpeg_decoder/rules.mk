@@ -27,6 +27,8 @@ verilator_obj_dir := $(d)obj_dir
 # jpeg_decoder_verilator
 # This simulates just the RTL of the JPEG decoder itself.
 bin_jpeg_decoder := $(d)jpeg_decoder_verilator
+$(bin_jpeg_decoder) := CPPFLAGS += -std=c++17
+
 verilator_bin_jpeg_decoder := $(verilator_obj_dir)/Vjpeg_decoder
 verilator_mk_jpeg_decoder := $(verilator_bin_jpeg_decoder).mk
 srcs_jpeg_decoder := $(addprefix $(d),jpeg_decoder_verilator.cc)
@@ -36,7 +38,7 @@ jpeg_decoder_search_paths := $(addprefix $(d),rtl/src_v rtl/jpeg_core/src_v)
 $(verilator_mk_jpeg_decoder): $(lib_simbricks)
 	$(VERILATOR) $(VFLAGS) --cc -O3 \
 		--trace --no-trace-top --no-trace-params --trace-underscore \
-		-CFLAGS "-I$(abspath $(lib_dir)) -iquote $(abspath $(base_dir))" \
+		-CFLAGS "-I$(abspath $(lib_dir)) -iquote $(abspath $(base_dir)) -std=c++17" \
 		--Mdir $(verilator_obj_dir) \
 		--exe \
 		$(addprefix -y ,$(jpeg_decoder_search_paths)) \
@@ -63,7 +65,7 @@ srcs_jpeg_decoder_multiple2 := $(addprefix $(d),jpeg_decoder_multiple2_verilator
 $(verilator_mk_jpeg_decoder_multiple2):
 	$(VERILATOR) $(VFLAGS) --cc -O3 \
 		--trace --no-trace-top --no-trace-params --trace-underscore \
-		-CFLAGS "-I$(abspath $(lib_dir)) -iquote $(abspath $(base_dir))" \
+		-CFLAGS "-I$(abspath $(lib_dir)) -iquote $(abspath $(base_dir)) -std=c++17" \
 		--Mdir $(verilator_obj_dir) \
 		-LDFLAGS "-L$(abspath $(lib_dir)) -lsimbricks" \
 		-y /home/jonask/Repos/jpeg_decoder_multiple2_sim/xsim/srcs/rtl/xil_defaultlib \

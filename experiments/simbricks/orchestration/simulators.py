@@ -488,6 +488,7 @@ class Gem5Host(HostSim):
 
         cmd = f'{env.gem5_path(self.variant)} --outdir={env.gem5_outdir(self)} '
         cmd += ' '.join(self.extra_main_args)
+
         cmd += (
             f' {env.gem5_py_path} --caches --l2cache --l3cache '
             '--l1d_size=32kB --l1i_size=32kB --l2_size=1024kB --l3_size=36864kB '
@@ -1125,6 +1126,8 @@ class JpegDecoderDev(PCIDevSim):
         self.start_tick = 0
         self.name = 'jpeg_decoder'
         self.variant = 'jpeg_decoder_verilator'
+        self.clock_freq = 100
+        """Clock frequency in MHz"""
 
     def resreq_mem(self) -> int:
         return 512  # this is a guess
@@ -1134,28 +1137,8 @@ class JpegDecoderDev(PCIDevSim):
             f'{env.repodir}/sims/misc/jpeg_decoder/{self.variant} '
             f'{env.dev_pci_path(self)} {env.dev_shm_path(self)} '
             f'{self.start_tick} {self.sync_period} {self.pci_latency} '
-            f'{env.outdir}/{self.name}_dump '
+            f'{self.clock_freq} '
         )
-
-
-class JpegDecoderLpnBmDev(PCIDevSim):
-    """Behavioral model of the JPEG decoder based on a Latency Petri Net."""
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.start_tick = 0
-        self.name = 'jpeg_decoder_lpn_bm'
-
-    def resreq_mem(self) -> int:
-        return 512  # this is a guess
-
-    def run_cmd(self, env: ExpEnv) -> str:
-        return (
-            f'{env.repodir}/sims/lpn/jpeg_decoder/jpeg_decoder_bm '
-            f'{env.dev_pci_path(self)} {env.dev_shm_path(self)} '
-            f'{self.start_tick} {self.sync_period} {self.pci_latency} '
-        )
-
 
 class BasicMemDev(MemDevSim):
 
@@ -1251,6 +1234,7 @@ class VTALpnBmDev(PCIDevSim):
         super().__init__()
         self.start_tick = 0
         self.name = 'vta_lb'
+        self.deps = []
 
     def resreq_mem(self) -> int:
         return 512  # this is a guess
@@ -1258,9 +1242,18 @@ class VTALpnBmDev(PCIDevSim):
     def run_cmd(self, env: ExpEnv) -> str:
         return (
             f'{env.repodir}/sims/lpn/vta/vta_bm '
+            f'{env.dev_mem_path(self)} {env.dev_shm_path(self)}_ms '
             f'{env.dev_pci_path(self)} {env.dev_shm_path(self)} '
             f'{self.start_tick} {self.sync_period} {self.pci_latency} '
         )
+    
+    def dependencies(self) -> tp.List[Simulator]:
+        return self.deps
+    
+    def sockets_wait(self, env: ExpEnv) -> tp.List[str]:
+        wait = super().sockets_wait(env)
+        wait.append(env.dev_mem_path(self))
+        return wait
 
 
 class ProtoaccLpnBmDev(PCIDevSim):
@@ -1278,10 +1271,44 @@ class ProtoaccLpnBmDev(PCIDevSim):
     def run_cmd(self, env: ExpEnv) -> str:
         return (
             f'{env.repodir}/sims/lpn/protoacc/protoacc_bm '
-            f'{env.dev_mem_path(self)} '
+            f'{env.dev_mem_path(self)} {env.dev_shm_path(self)}_ms '
             f'{env.dev_pci_path(self)} {env.dev_shm_path(self)} '
             f'{self.start_tick} {self.sync_period} {self.pci_latency} '
         )
 
     def dependencies(self) -> tp.List[Simulator]:
         return self.deps
+    
+    def sockets_wait(self, env: ExpEnv) -> tp.List[str]:
+        wait = super().sockets_wait(env)
+        wait.append(env.dev_mem_path(self))
+        return wait
+
+
+class JpegDecoderLpnBmDev(PCIDevSim):
+    """Behavioral model of the JPEG decoder based on a Latency Petri Net."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.start_tick = 0
+        self.name = 'jpeg_lb'
+        self.deps = []
+
+    def resreq_mem(self) -> int:
+        return 512  # this is a guess
+
+    def run_cmd(self, env: ExpEnv) -> str:
+        return (
+            f'{env.repodir}/sims/lpn/jpeg_decoder/jpeg_decoder_bm '
+            f'{env.dev_mem_path(self)} {env.dev_shm_path(self)}_ms '
+            f'{env.dev_pci_path(self)} {env.dev_shm_path(self)} '
+            f'{self.start_tick} {self.sync_period} {self.pci_latency} '
+        )
+
+    def dependencies(self) -> tp.List[Simulator]:
+        return self.deps
+    
+    def sockets_wait(self, env: ExpEnv) -> tp.List[str]:
+        wait = super().sockets_wait(env)
+        wait.append(env.dev_mem_path(self))
+        return wait

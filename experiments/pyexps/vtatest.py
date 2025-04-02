@@ -25,11 +25,31 @@ import simbricks.orchestration.nodeconfig as node
 import simbricks.orchestration.simulators as sim
 
 experiments = []
+class CustomGem5(sim.Gem5Host):
+
+    def __init__(self, node_config: sim.NodeConfig) -> None:
+        super().__init__(node_config)
+        self.cpu_type = 'O3CPU'
+        self.cpu_freq = '4.2GHz'
+        self.mem_sidechannels = []
+        self.variant = 'fast'
+
+    def run_cmd(self, env: sim.ExpEnv) -> str:
+        cmd = super().run_cmd(env)
+        cmd += ' '
+
+        for mem_sidechannel in self.mem_sidechannels:
+            cmd += (
+                '--simbricks-mem_sidechannel=connect'
+                f':{env.dev_mem_path(mem_sidechannel)}'
+            )
+            cmd += ' '
+        return cmd
 
 for h in ['qk', 'qt', 'gk', 'gt']:
     for vta_var in ['lpn', 'rtl']:
         print("running")
-        e = exp.Experiment('vtatest-' + h + '-' + vta_var)
+        e = exp.Experiment('vtatest_200-' + h + '-' + vta_var)
         e.checkpoint = False
 
         node_config = node.LinuxVTANode()
@@ -43,7 +63,7 @@ for h in ['qk', 'qt', 'gk', 'gt']:
             e.checkpoint = True
             node_config.app.gem5_cp = True
             node_config.app.pci_device = '0000:00:00.0'
-            host = sim.Gem5Host(node_config)
+            host = CustomGem5(node_config)
             host.sync = True
             host.cpu_type = 'O3CPU'
             host.variant = 'fast'
@@ -57,15 +77,18 @@ for h in ['qk', 'qt', 'gk', 'gt']:
         host.wait = True
         if vta_var == 'lpn':
             vta = sim.VTALpnBmDev()
+            if h == 'gt':
+                host.mem_sidechannels.append(vta)
+
         elif vta_var == 'rtl':
             vta = sim.VTADev()
         vta.name = 'vta0'
-        vta.clock_freq = 2000 # in Mhz
+        vta.clock_freq = 200 # in Mhz
         e.add_pcidev(vta)
 
         host.add_pcidev(vta)
 
         vta.pci_latency = vta.sync_period = host.pci_latency = \
-            host.sync_period = 400
+            host.sync_period = 500
 
         experiments.append(e)

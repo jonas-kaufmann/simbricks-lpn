@@ -975,6 +975,8 @@ class VTAMatMul(AppConfig):
 
     def prepare_pre_cp(self) -> tp.List[str]:
         return [
+            f"llvm-config --version ",
+            f"export TVM_NUM_THREADS=1 ",
             f'export GEM5_CP={int(self.gem5_cp)}',
             f'export VTA_DEVICE={self.pci_device}',
             'export VTA_RPC_HOST=127.0.0.1',

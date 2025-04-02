@@ -93,7 +93,8 @@ experiment.checkpoint = True
 
 mem_tester = MemSidechannelTester()
 # mem_tester = sim.ProtoaccLpnBmDev()
-experiment.add_pcidev(mem_tester)
+# experiment.add_pcidev(mem_tester)
+experiment.add_memdev(mem_tester)
 
 node_config = node.NodeConfig()
 node_config.memory = 2048
@@ -102,8 +103,8 @@ node_config.app = MemTest()
 host = CustomGem5(node_config)
 host.sync = True
 host.mem_sidechannels.append(mem_tester)
-mem_tester.pci_latency = mem_tester.sync_period = host.pci_latency = \
-            host.sync_period = host.pci_latency = host.sync_period = 20 #1 us
+# mem_tester.pci_latency = mem_tester.sync_period = host.pci_latency = \
+#             host.sync_period = host.pci_latency = host.sync_period = 20 #1 us
 host.wait = True
 experiment.add_host(host)
 

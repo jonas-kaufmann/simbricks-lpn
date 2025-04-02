@@ -24,7 +24,7 @@ include mk/subdir_pre.mk
 
 QEMU_IMG := $(d)qemu/build/qemu-img
 QEMU := $(d)qemu/build/qemu-system-x86_64
-GEM5_VARIANT ?= opt
+GEM5_VARIANT ?= fast
 
 EXTERNAL_SIMS_DIR := $(d)
 

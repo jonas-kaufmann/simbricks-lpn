@@ -7,20 +7,42 @@ import simbricks.orchestration.nodeconfig as node
 import itertools
 import os
 
+
+class CustomGem5(sim.Gem5Host):
+
+    def __init__(self, node_config: sim.NodeConfig) -> None:
+        super().__init__(node_config)
+        self.cpu_type = 'O3CPU'
+        self.cpu_freq = '3GHz'
+        self.mem_sidechannels = []
+        self.variant = 'fast'
+
+    def run_cmd(self, env: sim.ExpEnv) -> str:
+        cmd = super().run_cmd(env)
+        cmd += ' '
+
+        for mem_sidechannel in self.mem_sidechannels:
+            cmd += (
+                '--simbricks-mem_sidechannel=connect'
+                f':{env.dev_mem_path(mem_sidechannel)}'
+            )
+            cmd += ' '
+        return cmd
+    
 experiments = []
 
 # Experiment parameters
 host_variants = ["qemu_kvm", "qemu_icount", "gem5_o3"]
 vta_ops = ["rtl", "lpn"]
 inference_device_opts = [node.TvmDeviceType.CPU, node.TvmDeviceType.VTA]
-vta_clk_freq_opts = [100, 200, 400, 2000]
+vta_clk_freq_opts = [100, 160, 200, 400, 2000]
 
 # Build experiment for all combinations of parameters
 for host_var, inference_device, vta_clk_freq, vta_op in itertools.product(
     host_variants, inference_device_opts, vta_clk_freq_opts, vta_ops
 ):
     experiment = exp.Experiment(
-        f"detect-{inference_device.value}-{host_var}-{vta_op}-{vta_clk_freq}"
+        f"detect_t-{inference_device.value}-{host_var}-{vta_op}-{vta_clk_freq}"
     )
     pci_vta_id = 2
     sync = False
@@ -30,15 +52,6 @@ for host_var, inference_device, vta_clk_freq, vta_op in itertools.product(
         HostClass = sim.QemuIcountHost
         sync = True
     elif host_var == "gem5_o3":
-
-        class CustomGem5(sim.Gem5Host):
-
-            def __init__(self, node_config: sim.NodeConfig) -> None:
-                super().__init__(node_config)
-                self.cpu_type = 'O3CPU'
-                self.variant = 'fast'
-                self.cpu_freq = '3GHz'
-
         HostClass = CustomGem5
         sync = True
         experiment.checkpoint = True
@@ -74,6 +87,7 @@ for host_var, inference_device, vta_clk_freq, vta_op in itertools.product(
         def run_cmds(self, node):
             # define commands to run on simulated server
             cmds = [
+                f"export TVM_NUM_THREADS=1 ",
                 # start RPC server
                 f"VTA_DEVICE={self.pci_device_id} python3 -m"
                 " vta.exec.rpc_server &"
@@ -165,6 +179,9 @@ for host_var, inference_device, vta_clk_freq, vta_op in itertools.product(
         vta = sim.VTADev()
     else:
         vta = sim.VTALpnBmDev()
+        if host_var == "gem5_o3":
+            server.mem_sidechannels.append(vta)
+
     vta.clock_freq = vta_clk_freq
     server.add_pcidev(vta)
 

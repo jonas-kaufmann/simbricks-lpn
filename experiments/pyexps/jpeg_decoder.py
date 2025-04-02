@@ -30,6 +30,26 @@ import simbricks.orchestration.nodeconfig as node
 import simbricks.orchestration.simulators as sim
 from simbricks.orchestration.nodeconfig import NodeConfig
 
+class CustomGem5(sim.Gem5Host):
+
+    def __init__(self, node_config: sim.NodeConfig) -> None:
+        super().__init__(node_config)
+        self.cpu_type = 'O3CPU'
+        self.cpu_freq = '3GHz'
+        self.mem_sidechannels = []
+        self.variant = 'fast'
+
+    def run_cmd(self, env: sim.ExpEnv) -> str:
+        cmd = super().run_cmd(env)
+        cmd += ' '
+
+        for mem_sidechannel in self.mem_sidechannels:
+            cmd += (
+                '--simbricks-mem_sidechannel=connect'
+                f':{env.dev_mem_path(mem_sidechannel)}'
+            )
+            cmd += ' '
+        return cmd
 
 class JpegDecoderWorkload(node.AppConfig):
 
@@ -109,7 +129,7 @@ class JpegDecoderWorkload(node.AppConfig):
 
 
 experiments: tp.List[exp.Experiment] = []
-for host_var in ['gem5_kvm', 'gem5_timing', 'qemu_icount', 'qemu_kvm']:
+for host_var in ['gem5_kvm', 'gem5_o3', 'qemu_icount', 'qemu_kvm']:
     for jpeg_var in ['lpn', 'rtl']:
         e = exp.Experiment(f'jpeg_decoder-{host_var}-{jpeg_var}')
         node_cfg = node.NodeConfig()
@@ -117,9 +137,9 @@ for host_var in ['gem5_kvm', 'gem5_timing', 'qemu_icount', 'qemu_kvm']:
         dma_src = 1 * 1024**3
         dma_dst = dma_src + 10 * 1024**2
         node_cfg.memory = 2 * 1024
+        # images = glob.glob('../sims/misc/jpeg_decoder/test_img/420/medium.jpg')
         images = glob.glob('../sims/misc/jpeg_decoder/test_img/420/*.jpg')
         images.sort()
-        # images = images[:len(images) // 2]  # only decode half of them
         node_cfg.app = JpegDecoderWorkload(
             '0000:00:00.0', images, dma_src, dma_dst, False
         )
@@ -127,10 +147,15 @@ for host_var in ['gem5_kvm', 'gem5_timing', 'qemu_icount', 'qemu_kvm']:
         if host_var == 'gem5_kvm':
             host = sim.Gem5Host(node_cfg)
             host.cpu_type = 'X86KvmCPU'
-        elif host_var == 'gem5_timing':
+        elif host_var == 'gem5_o3':
             e.checkpoint = True
-            host = sim.Gem5Host(node_cfg)
-            host.modify_checkpoint_tick = False
+            node_cfg.app.gem5_cp = True
+            node_cfg.app.pci_device = '0000:00:00.0'
+            host = CustomGem5(node_cfg)
+            host.sync = True
+            host.cpu_type = 'O3CPU'
+            host.variant = 'fast'
+            # host.modify_checkpoint_tick = False
         elif host_var == 'qemu_icount':
             node_cfg.app.pci_dev = '0000:00:02.0'
             host = sim.QemuHost(node_cfg)
@@ -145,10 +170,16 @@ for host_var in ['gem5_kvm', 'gem5_timing', 'qemu_icount', 'qemu_kvm']:
 
         if jpeg_var == 'lpn':
             jpeg_dev = sim.JpegDecoderLpnBmDev()
+            if host_var == 'gem5_o3':
+                host.mem_sidechannels.append(jpeg_dev)
         elif jpeg_var == 'rtl':
             jpeg_dev = sim.JpegDecoderDev()
         else:
             raise NameError(f'Variant {jpeg_var} is unhandled')
+        
+        jpeg_dev.name = 'jpeg0'
+        jpeg_dev.clock_freq = 2000 # in Mhz
+
         host.add_pcidev(jpeg_dev)
         e.add_pcidev(jpeg_dev)
 

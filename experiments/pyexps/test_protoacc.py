@@ -27,21 +27,8 @@ import simbricks.orchestration.simulators as sim
 
 experiments = []
 host_sim_choices = ["gem5_o3", "gem5_kvm", "qemu_kvm"]
-which_bench = ["bench0","bench1","bench2","bench3","bench4","bench5"]
-
-class MemSidechannel(sim.Simulator):
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.name = "mem_sidechannel"
-        self.deps = []
-
-    def full_name(self) -> str:
-        return self.name
-
-    def dependencies(self):
-        return self.deps
-
+which_bench = ["bench0","bench1","bench2","bench3","bench4","bench5", "b1s"]
+rtl_mode = ['rtl', 'lpn']
 
 class CustomGem5(sim.Gem5Host):
 
@@ -50,8 +37,7 @@ class CustomGem5(sim.Gem5Host):
         self.cpu_type = 'O3CPU'
         self.cpu_freq = '3GHz'
         self.mem_sidechannels = []
-        self.variant = 'opt'
-        print(" i have mem sidechannels !")
+        self.variant = 'fast'
 
     def run_cmd(self, env: sim.ExpEnv) -> str:
         cmd = super().run_cmd(env)
@@ -59,18 +45,11 @@ class CustomGem5(sim.Gem5Host):
 
         for mem_sidechannel in self.mem_sidechannels:
             cmd += (
-                '--simbricks-mem_sidechannel=listen'
+                '--simbricks-mem_sidechannel=connect'
                 f':{env.dev_mem_path(mem_sidechannel)}'
-                f':{env.dev_shm_path(mem_sidechannel)}_ms'
             )
             cmd += ' '
-
         return cmd
-
-    def sockets_wait(self, env: sim.ExpEnv):
-        for mem_sidechannel in self.mem_sidechannels:
-            return [env.dev_mem_path(mem_sidechannel)]
-
 
 class VtaNode(node.NodeConfig):
 
@@ -121,8 +100,11 @@ class ProtoaccBenchmark(node.AppConfig):
             
             "benchmark.x86":
                 open(
-                    f"/home/jiacma/chipyard-protoacc-ae/generators/protoacc/firesim-workloads/hyperproto/HyperZurvan/{self.which_bench}-ser/benchmark.x86",
+                    f"/home/jiacma/chipyard-protoacc-ae/generators/protoacc/firesim-workloads/hyperproto/HyperZurvanGem5/{self.which_bench}-ser/benchmark.x86",
+                    # f"/home/jiacma/chipyard-protoacc-ae/generators/protoacc/firesim-workloads/hyperproto/HyperZurvanNoAccel/{self.which_bench}-ser/benchmark.x86",
                     # f"/home/jiacma/chipyard-protoacc-ae/generators/protoacc/firesim-workloads/hyperproto/HyperZurvan/{self.which_bench}-ser/b_pure_cpu_gem5.x86",
+                    # f"/home/jiacma/chipyard-protoacc-ae/generators/protoacc/firesim-workloads/hyperproto/HyperZurvan/{self.which_bench}-ser/vfio_with_pac.x86",
+                    # f"/home/jiacma/chipyard-protoacc-ae/generators/protoacc/firesim-workloads/hyperproto/HyperZurvan/bench1-ser/benchmark.x86",
                     "rb",
                 )
         }
@@ -138,66 +120,71 @@ class ProtoaccBenchmark(node.AppConfig):
     
     def run_cmds(self, node) -> List[str]:
         cmds = ["cd /tmp/guest && ./benchmark.x86"]
+        cmds.append("./benchmark.x86")
         # cmds.append("./benchmark.x86")
-        # cmds.append("./benchmark.x86")
-        # cmds.append("./benchmark.x86")
-        # cmds.append("./benchmark.x86")
+        cmds.append("ls")
+        # cmds.append("taskset -c 1 ./benchmark.x86")
+        # cmds.append("taskset -c 1 ./benchmark.x86")
+        # cmds.append("taskset -c 1 ./benchmark.x86")
+        # cmds.append("taskset -c 1 ./benchmark.x86")
+        # cmds.append("taskset -c 1 ./benchmark.x86")
         # cmds.append("./benchmark.x86")
         return cmds
 
-for host_sim in host_sim_choices:
-    for this_bench in which_bench:
-        # e = exp.Experiment(f"protoacc_benchmark-{host_sim}-{this_bench}")
-        e = exp.Experiment(f"protoacc_benchmark_test_mem-{host_sim}-{this_bench}")
+for acc_mode in rtl_mode: 
+    for host_sim in host_sim_choices:
+        for this_bench in which_bench:
+            e = exp.Experiment(f"protoacc_benchmark_t99-{acc_mode}-{host_sim}-{this_bench}")
+            # e = exp.Experiment(f"pac_benchmark_busywait-{acc_mode}-{host_sim}-{this_bench}")
 
-        e.checkpoint = True
-
-        node_config = node.LinuxVTANode()
-        # node_config = VtaNode()
-        # node_config.nockp = not e.checkpoint
-        # node_config.memory = 3072
-        node_config.cores = 1
-        
-        node_config.app = ProtoaccBenchmark('0000:00:02.0', this_bench)
-
-        if host_sim == "gem5_kvm":
-            node_config.app.pci_device = '0000:00:00.0'
-            e.checkpoint = False
-            host = sim.Gem5Host(node_config)
-            host.cpu_type = 'X86KvmCPU'
-            host.name = 'host0'
-            host.sync = True
-            host.wait = True
-        elif host_sim == "gem5_o3":
-            host = CustomGem5(node_config)
-            # host = sim.Gem5Host(node_config)
-            node_config.app.pci_device = '0000:00:00.0'
             e.checkpoint = True
-            host.cpu_type = 'O3CPU'
-            host.variant = 'opt'
-            host.cpu_freq = '3GHz'
-            host.name = 'host0'
-            host.sync = True
-            host.wait = True
-        elif host_sim == "qemu_kvm":
-            host = sim.QemuHost(node_config)
-        
-        # vta = sim.ProtoaccDev()
-        vta = sim.ProtoaccLpnBmDev()
-        vta.name = 'pac0'
-        vta.clock_freq = 2000
-        host.add_pcidev(vta)
-        if host_sim == "gem5_o3":
-            host.mem_sidechannels.append(vta)
 
-        # ms.deps.append(host)
+            node_config = node.LinuxVTANode()
+            # node_config = VtaNode()
+            # node_config.nockp = not e.checkpoint
+            # node_config.memory = 3072
+            node_config.cores = 1
+            
+            node_config.app = ProtoaccBenchmark('0000:00:02.0', this_bench)
 
-        vta.pci_latency = vta.sync_period = host.pci_latency = \
-            host.sync_period = host.pci_latency = host.sync_period = 20 #1 us
+            if host_sim == "gem5_kvm":
+                node_config.app.pci_device = '0000:00:00.0'
+                e.checkpoint = False
+                host = sim.Gem5Host(node_config)
+                host.cpu_type = 'X86KvmCPU'
+                host.name = 'host0'
+                host.sync = True
+                host.wait = True
+            elif host_sim == "gem5_o3":
+                host = CustomGem5(node_config)
+                # host = sim.Gem5Host(node_config)
+                node_config.app.pci_device = '0000:00:00.0'
+                e.checkpoint = True
+                host.cpu_type = 'O3CPU'
+                host.variant = 'fast'
+                host.cpu_freq = '3GHz'
+                host.name = 'host0'
+                host.sync = True
+                host.wait = True
+            elif host_sim == "qemu_kvm":
+                host = sim.QemuHost(node_config)
+            
+            if acc_mode == "rtl":
+                pac = sim.ProtoaccDev()
+            elif acc_mode == "lpn":
+                pac = sim.ProtoaccLpnBmDev()
 
-        e.add_host(host)
-        e.add_pcidev(vta)
-        # e.add_memdev(ms)
-        
+            pac.name = 'pac0'
+            pac.clock_freq = 2000
+            host.add_pcidev(pac)
 
-        experiments.append(e)
+            if acc_mode == "lpn" and host_sim == "gem5_o3":
+                host.mem_sidechannels.append(pac)
+
+            pac.pci_latency = pac.sync_period = host.pci_latency = \
+                host.sync_period = host.pci_latency = host.sync_period = 4 # 4ns
+            e.add_pcidev(pac)
+
+            e.add_host(host)
+
+            experiments.append(e)

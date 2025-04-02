@@ -22,8 +22,10 @@
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
-#define AXI_R_DEBUG 0
-#define AXI_W_DEBUG 0
+// #define AXI_R_DEBUG
+// #define AXI_W_DEBUG
+// #define AXIL_W_DEBUG
+// #define AXIL_R_DEBUG
 #define JPGD_DEBUG 0
 
 #include "include/jpeg_decoder_verilator.hh"
@@ -53,7 +55,8 @@ std::unique_ptr<JpegDecAXISubordinateRead> dma_read{};
 std::unique_ptr<JpegDecAXISubordinateWrite> dma_write{};
 std::unique_ptr<JpegDecAXILManager> reg_read_write{};
 
-uint64_t clock_period = 1'000'000 / 150ULL;  // 150 MHz
+// uint64_t clock_period = 1'000'000 / 150ULL;  // 150 MHz
+uint64_t clock_period = 1'000'000 / 2000ULL;  // 150 MHz
 int exiting = 0;
 bool tracing_active = false;
 std::string trace_filename{};
@@ -395,7 +398,7 @@ int main(int argc, char **argv) {
   if (argc < 3 || argc > 7) {
     std::cerr
         << "Usage: jpeg_decoder_verilator PCI-SOCKET SHM START-TIMESTAMP-PS "
-           "SYNC-PERIOD PCI-LATENCY TRACE-FILE\n";
+           "SYNC-PERIOD PCI-LATENCY FREQ \n";
     return EXIT_FAILURE;
   }
 
@@ -416,7 +419,8 @@ int main(int argc, char **argv) {
   signal(SIGINT, sigint_handler);
   signal(SIGUSR1, sigusr1_handler);
 
-  trace_filename = std::string(argv[6]);
+  trace_filename = "dump_trace"; //std::string(argv[6]);
+  clock_period = 1000000ULL / strtoull(argv[6], NULL, 0);
 
   // initialize
   top = std::make_unique<Vjpeg_decoder>();
