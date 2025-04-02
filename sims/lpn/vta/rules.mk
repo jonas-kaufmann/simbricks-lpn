@@ -26,14 +26,14 @@ include mk/subdir_pre.mk
 bin_vta_bm := $(d)vta_bm
 
 bm_objs := $(addprefix $(d), vta_bm.o)
-bm_objs += $(addprefix $(d), src/func_sim.o)
-bm_objs += $(addprefix $(d), src/lpn_req_map.o)
-bm_objs += $(addprefix $(d), src/io_generator.o)
-bm_objs += $(addprefix $(d), lpn_def/places.o)
+bm_objs += $(addprefix $(d), func_sim/func_sim.o)
+bm_objs += $(addprefix $(d), func_sim/lpn_req_map.o)
+bm_objs += $(addprefix $(d), perf_sim/places.o)
 
-$(bin_vta_bm): CPPFLAGS += -O3
+# $(bin_vta_bm): CPPFLAGS += -O3 -g  -std=c++17 -Wno-missing-field-initializers
+$(bin_vta_bm): CPPFLAGS += -O3 -std=c++17 -Wno-missing-field-initializers
 # $(bin_vta_bm): LDFLAGS += -fsanitize=address -static-libasan
-$(bin_vta_bm):$(bm_objs) $(lib_pciebm) $(lib_pcie) $(lib_base) \
+$(bin_vta_bm):$(bm_objs) $(lib_pciebm) $(lib_pcie) $(lib_base) $(lib_mem) \
 	$(lib_lpnsim) -lpthread
 
 CLEAN := $(bin_vta_bm) $(bm_objs)

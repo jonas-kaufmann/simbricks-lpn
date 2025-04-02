@@ -1,13 +1,10 @@
 #pragma once
+#include <bits/stdint-uintn.h>
 #include <cstdint>
 
-#define CTRL_REG_START_BIT 0x80000000
-#define CTRL_REG_LEN_MASK 0x00FFFFFF
-
-// control registers for the VTA, based on
 // 3rdparty/vta-hw/src/simbricks-pci/pci_driver.cc
 struct __attribute__((packed)) VTARegs {
-    uint32_t status; // 0
+    uint32_t ctrl; // 0
     uint32_t _0x04;  // 4
     uint32_t insn_count; // 8
     uint32_t insn_phy_addr_lh; // 12

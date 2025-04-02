@@ -95,7 +95,8 @@ void VTADeviceFree(VTADeviceHandle handle);
 int VTADeviceRun(VTADeviceHandle device,
                  vta_phy_addr_t insn_phy_addr,
                  uint32_t insn_count,
-                 uint32_t wait_cycles);
+                 uint32_t wait_cycles,
+                 uint64_t ps_ts);
 
 /*!
  * \brief Allocates physically contiguous region in memory readable/writeable by FPGA.

@@ -34,10 +34,12 @@ void lpn_start(uint64_t descriptor_table_addr, uint64_t src_base_addr, uint64_t 
 int lpn_finished(){
     if(!(dma_read_requests.empty() && dma_write_requests.empty() && dma_read_resp.empty() && dma_write_resp.empty())){
         return 0;
-    }
-    uint64_t next_ts = NextCommitTime(t_list, T_SIZE);
-    if(next_ts == lpn::LARGE){
+    }else{
         return 1;
     }
+    // uint64_t next_ts = NextCommitTime(t_list, T_SIZE);
+    // if(next_ts == lpn::LARGE){
+    //     return 1;
+    // }
     return 0;
 }

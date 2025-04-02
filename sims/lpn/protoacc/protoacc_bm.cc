@@ -23,12 +23,19 @@
 #include "sims/lpn/protoacc/perf_sim/sim.hh"
 
 
+// if you are waiting for the zero-cost-dma, 
+// and you don't have events to schedule
+// you can't send sync messages yet
+
 #define MASK5 0b11111
 #define MASK6 0b111111
 
 #define Protoacc_DEBUG 0
 
+// #define Protoacc_DEBUG_DMA
+
 uint64_t in_flight_write = 0;
+uint64_t in_flight_read = 0;
 
 PACBm* protoacc_bm_;
 
@@ -76,7 +83,6 @@ void PACBm::SetupIntro(struct SimbricksProtoPcieDevIntro &dev_intro) {
 
 void PACBm::RegRead(uint8_t bar, uint64_t addr, void *dest,
                             size_t len) {
-  return;
   if (bar != 0) {
     std::cerr << "error: register read from unmapped BAR " << bar << "\n";
     return;
@@ -86,10 +92,13 @@ void PACBm::RegRead(uint8_t bar, uint64_t addr, void *dest,
               << " len=" << len << "\n";
     return;
   }
+  
   std::memcpy(dest, reinterpret_cast<uint8_t *>(&Registers_) + addr, len);
+  std::cerr << "Register read offset=" << addr
+            << " len=" << len << " value=" << (*((uint32_t*)(dest))) <<"\n";
 }
 
-
+static uint64_t started_task = 0;
 void PACBm::RegWrite(uint8_t bar, uint64_t addr, const void *src,
                              size_t len) {
   
@@ -111,6 +120,7 @@ void PACBm::RegWrite(uint8_t bar, uint64_t addr, const void *src,
   std:: cerr << "Ctrl value: " << Registers_.ctrl << std::hex << "\n";
   uint32_t update_output_ptrs = (Registers_.ctrl >> 7 & 0x1) == 0x1;
   if(update_output_ptrs){
+    Registers_.ctrl = 0;
     printf("Update output pointers\n");
     lpn_setup_output_addr(
       (uint64_t)Registers_.string_ptr_region_ptr_as_int_h << 32 | Registers_.string_ptr_region_ptr_as_int_l,
@@ -120,11 +130,17 @@ void PACBm::RegWrite(uint8_t bar, uint64_t addr, const void *src,
 
   uint32_t start = Registers_.ctrl  == 1;
   if (start){
-    std:: cerr << "start LPN : " << Registers_.ctrl << std::hex << "\n";
+    Registers_.ctrl = 0;
+    started_task ++;
+    std:: cerr << "start LPN : " << Registers_.ctrl << std::hex << " total task " << started_task << "\n";
     lpn_start(
             (uint64_t)Registers_.descriptor_table_addr_h << 32 | Registers_.descriptor_table_addr_l, 
             (uint64_t)Registers_.src_base_addr_h << 32 | Registers_.src_base_addr_l, 
               TimePs());
+
+    for (auto &kv : io_req_map) {
+      std::cerr << "io_req_map[" << kv.first << "].size() = " << kv.second.size() << "\n";
+    }
 
     // Start simulating the LPN immediately
     auto evt = std::make_unique<pciebm::TimedEvent>();
@@ -141,20 +157,22 @@ void PACBm::RegWrite(uint8_t bar, uint64_t addr, const void *src,
 // 4. Issue new DMA ops 
 void PACBm::DmaComplete(std::unique_ptr<pciebm::DMAOp> dma_op) {
 
-  UpdateClk(t_list, T_SIZE, TimePs());
+  uint64_t ts_now = TimePs();
+  UpdateClk(t_list, T_SIZE, ts_now);
   // handle response to DMA read request
   if (!dma_op->write) {
-    putData(dma_op->dma_addr, dma_op->len, dma_op->tag, dma_op->write, TimePs(), dma_op->data);
+    in_flight_read--;
+    putData(dma_op->dma_addr, dma_op->len, dma_op->tag, dma_op->write, ts_now, dma_op->data);
     #ifdef Protoacc_DEBUG_DMA
-      std::cerr << "DMA Complete: " << dma_op->tag << " " << dma_op->dma_addr << " " << dma_op->len << std::endl;
+      std::cerr << TimePs()/1000 << " DMA Complete: " << dma_op->tag << " " << dma_op->dma_addr << " " << dma_op->len << std::endl;
     #endif
   }
   // handle response to DMA write request
   else {
-    putData(dma_op->dma_addr, dma_op->len, dma_op->tag, dma_op->write, TimePs(), dma_op->data);
+    putData(dma_op->dma_addr, dma_op->len, dma_op->tag, dma_op->write, ts_now, dma_op->data);
     in_flight_write--;
     #ifdef Protoacc_DEBUG_DMA
-      std::cerr << "DMA Write Complete: " << dma_op->tag << " " << dma_op->dma_addr << " " << dma_op->len << std::endl;
+      std::cerr << TimePs()/1000 << " DMA Write Complete: " << dma_op->tag << " " << dma_op->dma_addr << " " << dma_op->len << std::endl;
     #endif
     // Process Write
     // lpn_req->acquired_len += dma_op->len;
@@ -164,13 +182,14 @@ void PACBm::DmaComplete(std::unique_ptr<pciebm::DMAOp> dma_op) {
   uint64_t next_ts = NextCommitTime(t_list, T_SIZE); 
   
   // Check for end condition
-  if (in_flight_write == 0 && lpn_finished() && next_ts == lpn::LARGE) {
+  if (in_flight_write == 0 && in_flight_read == 0 && lpn_finished() && next_ts == lpn::LARGE) {
     std::cerr << "DMAcomplete: ProtoaccDeviceRun finished " << std::endl;
     // lpn_end();
     ClearReqQueues(ids);
 
-    Registers_.ctrl = 0x2;
-    TransitionCountLog(t_list, T_SIZE);
+    // Registers_.ctrl = 0x2;
+    Registers_.completed_msg = started_task;
+    // TransitionCountLog(t_list, T_SIZE);
     return ;
   }
 
@@ -199,8 +218,8 @@ void from_list_to_io_map(){
         auto tag = token->id;
         // id is the tag in io_req_map
         // ref is the port number
-        int matched = 0;
         if(io_req_map[tag].empty()){
+            // printf("@dma_read_finish_directly port %d tag %d\n", token->ref, token->id);
             // no matched request, put response directly
             // no match because what lpn generates might not be the same as what the functional simulator expects
             dma_read_resp.push_back(token);
@@ -210,7 +229,7 @@ void from_list_to_io_map(){
         assert(req != nullptr);
         req->extra_ptr = static_cast<void*>(token);
         assert(req->tag == tag);
-        // printf("@%ld[ns] dma_read_start id %d; port %d tag %d\n", ts/1000, req->id, token->ref, token->id);
+        // printf("@dma_read_start id %d; port %d tag %d\n", req->id, token->ref, token->id);
         io_send_req_map[tag].push_back(std::move(req));
     }
 
@@ -220,8 +239,8 @@ void from_list_to_io_map(){
         auto tag = token->id;
         // id is the tag in io_req_map
         // ref is the port number
-        int matched = 0;
         if(io_req_map[tag].empty()){
+            // printf("@dma_write_finish_directly port %d tag %d\n", token->ref, token->id);
             // no matched request, put response directly
             // no match because what lpn generates might not be the same as what the functional simulator expects
             dma_write_resp.push_back(token);
@@ -229,13 +248,12 @@ void from_list_to_io_map(){
         }
         auto req = dequeueReq(io_req_map[tag]);
         req->extra_ptr = static_cast<void*>(token);
-        // printf("@%ld[ns] dma_write_start id %d; port %d tag %d\n", ts/1000, req->id, token->ref, token->id);
+        // printf("@dma_write_start id %d; port %d tag %d\n", req->id, token->ref, token->id);
         io_send_req_map[tag].push_back(std::move(req));
     }
 }
 
 void PACBm::ExecuteEvent(std::unique_ptr<pciebm::TimedEvent> evt) {
-  return;
   // commit all transitions who can commit at evt.time
   // alternatively, commit transitions one by one.
   // UpdateClk(TimePs());‘
@@ -249,7 +267,7 @@ void PACBm::ExecuteEvent(std::unique_ptr<pciebm::TimedEvent> evt) {
 
   // check the new dma events
   from_list_to_io_map();
-  
+  next_ts = NextCommitTime(t_list, T_SIZE);
 
 #if Protoacc_DEBUG
   std::cerr << "lpn exec: evt time=" << evt->time << " TimePs=" << TimePs()
@@ -270,55 +288,55 @@ void PACBm::ExecuteEvent(std::unique_ptr<pciebm::TimedEvent> evt) {
     EventSchedule(std::move(evt));
   }
 
-  
-  if (in_flight_write == 0 && lpn_finished() && next_ts == lpn::LARGE) {
-      std::cerr << "ProtoaccDeviceRun finished " << std::endl;
-      ClearReqQueues(ids);
-      // lpn_end();
-
-      Registers_.ctrl = 0x2;
-      TransitionCountLog(t_list, T_SIZE);
-      return;
-  }
-
   // Issue requests enqueued by IOGen
   for (auto &kv : io_send_req_map) {
     if (kv.second.empty()) continue;
-      while(!kv.second.empty()){
-       auto req = dequeueReq(kv.second);
-       auto total_bytes = req->len;
-        auto sent_bytes = 0;
-        while(total_bytes > 0){
-          auto bytes_to_req = std::min<uint64_t>(total_bytes, DMA_BLOCK_SIZE);
-          if (req->rw == READ_REQ) {
-            auto dma_op = std::make_unique<PACDmaReadOp<DMA_BLOCK_SIZE>>(req->addr + sent_bytes, bytes_to_req, req->tag);
-            #ifdef Protoacc_DEBUG_DMA
-              std::cerr << "Issue DMA Read: " << req->tag << " " << req->addr + sent_bytes << " " << bytes_to_req << std::endl;
-            #endif
-            IssueDma(std::move(dma_op));
-          } else {
-            // reset the len to record for completion
-            req->acquired_len = 0;
-            auto dma_op = std::make_unique<PACDmaWriteOp>(req->addr + sent_bytes, bytes_to_req, req->tag);
-            std::memcpy(dma_op->buffer, req->buffer, bytes_to_req);
-            in_flight_write++;
-            #ifdef Protoacc_DEBUG_DMA
-              std::cerr << "Issue DMA Write: " << req->tag << " " << req->addr + sent_bytes << " " << bytes_to_req << std::endl;
-            #endif
-            IssueDma(std::move(dma_op));
-          }
-          total_bytes -= bytes_to_req;
-          sent_bytes += bytes_to_req;
+    while(!kv.second.empty()){
+      auto req = dequeueReq(kv.second);
+      auto total_bytes = req->len;
+      auto sent_bytes = 0;
+      while(total_bytes > 0){
+        auto bytes_to_req = std::min<uint64_t>(total_bytes, DMA_BLOCK_SIZE);
+        if (req->rw == READ_REQ) {
+          in_flight_read++;
+          auto dma_op = std::make_unique<PACDmaReadOp<DMA_BLOCK_SIZE>>(req->addr + sent_bytes, bytes_to_req, req->tag);
+          #ifdef Protoacc_DEBUG_DMA
+            std::cerr << "Issue DMA Read: " << req->tag << " " << req->addr + sent_bytes << " " << bytes_to_req << std::endl;
+          #endif
+          IssueDma(std::move(dma_op));
+        } else {
+          // reset the len to record for completion
+          req->acquired_len = 0;
+          auto dma_op = std::make_unique<PACDmaWriteOp>(req->addr + sent_bytes, bytes_to_req, req->tag);
+          std::memcpy(dma_op->buffer, req->buffer, bytes_to_req);
+          in_flight_write++;
+          #ifdef Protoacc_DEBUG_DMA
+            std::cerr << "Issue DMA Write: " << req->tag << " " << req->addr + sent_bytes << " " << bytes_to_req << std::endl;
+          #endif
+          IssueDma(std::move(dma_op));
+        }
+        total_bytes -= bytes_to_req;
+        sent_bytes += bytes_to_req;
       }
       io_pending_req_map[kv.first].push_back(std::move(req));
     }
   }
-  
-  // if (next_ts == lpn::LARGE && Registers_.ctrl == 0x4 && !next_scheduled) {
-  //   Registers_.ctrl = 0x2;
-  //   TransitionCountLog(t_list, T_SIZE);
-  //   return;
-  // }
+
+  if (in_flight_write == 0 && in_flight_read == 0 && lpn_finished() && next_ts == lpn::LARGE) {
+      std::cerr << "ProtoaccDeviceRun finished " << std::endl;
+      
+      for (auto &kv : io_req_map) {
+        std::cerr << "io_req_map[" << kv.first << "].size() = " << kv.second.size() << "\n";
+      }
+
+      ClearReqQueues(ids);
+      // lpn_end();
+
+      // Registers_.ctrl = 0x2;
+      Registers_.completed_msg = started_task;
+      // TransitionCountLog(t_list, T_SIZE);
+      return;
+  }
 }
 
 void PACBm::DevctrlUpdate(

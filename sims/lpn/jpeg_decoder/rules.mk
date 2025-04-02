@@ -22,20 +22,19 @@
 
 include mk/subdir_pre.mk
 
-# JPEG decoder behavioral model
-bin_jpeg_decoder_bm := $(d)jpeg_decoder_bm
+# vta behavioral model
+bin_jpeg_bm := $(d)jpeg_decoder_bm
 
-bm_objs := $(addprefix $(d),jpeg_decoder_bm.o)
-bm_objs += $(addprefix $(d), src/func_sim.o)
-bm_objs += $(addprefix $(d), src/lpn_req_map.o)
-bm_objs += $(addprefix $(d), lpn_def/places.o)
+bm_objs := $(addprefix $(d), jpeg_decoder_bm.o)
+bm_objs += $(addprefix $(d), func_sim/func_sim.o)
+bm_objs += $(addprefix $(d), func_sim/lpn_req_map.o)
+bm_objs += $(addprefix $(d), perf_sim/places.o)
 
-$(bin_jpeg_decoder_bm): CPPFLAGS += -O3
-
-# $(bin_jpeg_decoder_bm): CPPFLAGS += -fsanitize=address -g
-# $(bin_jpeg_decoder_bm): LDFLAGS += -fsanitize=address -static-libasan
-$(bin_jpeg_decoder_bm): $(bm_objs) $(lib_pciebm) $(lib_pcie) $(lib_base) \
-	$(lib_lpnsim)  -lpthread
+# $(bin_jpeg_bm): CPPFLAGS += -O3 -g  -std=c++17 -Wno-missing-field-initializers
+$(bin_jpeg_bm): CPPFLAGS += -O3 -std=c++17 -Wno-missing-field-initializers -Wno-unused-value -Wno-sequence-point
+# $(bin_jpeg_bm): LDFLAGS += -fsanitize=address -static-libasan
+$(bin_jpeg_bm):$(bm_objs) $(lib_pciebm) $(lib_pcie) $(lib_base) $(lib_mem) \
+	$(lib_lpnsim) -lpthread
 
 # workload driver
 bin_workload_driver := $(d)jpeg_decoder_workload_driver
@@ -47,8 +46,9 @@ $(bin_workload_driver): LDFLAGS += -static
 
 $(bin_workload_driver): $(workload_driver_objs)
 
-CLEAN := $(bin_jpeg_decoder_bm) $(bin_workload_driver) $(bm_objs) \
+CLEAN := $(bin_jpeg_bm) $(bin_workload_driver) $(bm_objs) \
 	$(workload_driver_objs)
-ALL := $(bin_jpeg_decoder_bm) $(bin_workload_driver)
+ALL := $(bin_jpeg_bm) $(bin_workload_driver)
+
 
 include mk/subdir_post.mk

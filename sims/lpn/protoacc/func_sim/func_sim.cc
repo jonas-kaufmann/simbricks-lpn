@@ -16,7 +16,8 @@
 #include "../include/lpn_req_map.hh"
 #include "../include/driver.hh"
 
-#define DEBUG_PRINT(...) printf(__VA_ARGS__)
+// #define DEBUG_PRINT(...) printf(__VA_ARGS__)
+#define DEBUG_PRINT(...)
 
 static uint64_t id_counter = 0;
 using json = nlohmann::json;
@@ -88,11 +89,11 @@ ssize_t read_process_memory(uintptr_t address, void *buffer, size_t size, int ta
     if(tag != -1){
       enqueueReq(id_counter++, address, size, tag, 0, 0);
     }
-    printf("read_process_memory: address = %p, size = %ld, tag = %d\n", (void*)address, size, tag);
+    // std::cout << "read_process_memory: address = " << (void*)address << ", size = " << size << ", tag = " << tag << std::endl;
     auto dma_op = std::make_unique<PACDmaReadOp<ZC_DMA_BLOCK_SIZE>>(address, size, tag);
     auto return_dma = protoacc_bm_->ZeroCostBlockingDma(std::move(dma_op));
     memcpy(buffer, return_dma->data, size);
-    printf("read done\n");
+    // std::cout << "read_process_memory: done " << std::endl;
     return 0;
 }
 

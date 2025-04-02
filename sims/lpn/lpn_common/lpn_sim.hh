@@ -9,7 +9,13 @@
     
 void TransitionCountLog(Transition* t_list[], int size);
 
+void TransitionResetCount(Transition* t_list[], int size);
+
+void PlaceTokensLog(Transition* t_list[], int size);
+
 uint64_t NextCommitTime(Transition* t_list[], int size);
+
+uint64_t NextCommitTimeFast(Transition* t_list[], int size);
 
 int CommitAtTime(Transition* t_list[], int size, uint64_t time);
 

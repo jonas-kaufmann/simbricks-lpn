@@ -1,4 +1,4 @@
-#include "include/jpeg_decoder_bm.hh"
+#include "include/jpeg_bm.hh"
 
 #include <bits/stdint-uintn.h>
 #include <bits/types/siginfo_t.h>
@@ -10,78 +10,57 @@
 #include <iostream>
 #include <memory>
 #include <thread>
+#include <sys/time.h>
 
 #include <simbricks/pciebm/pciebm.hh>
 
-#include "../lpn_common/lpn_sim.hh"
-#include "lpn_def/lpn_def.hh"
-#include "sims/lpn/jpeg_decoder/include/jpeg_decoder_regs.hh"
+#include "include/lpn_req_map.hh"
+#include "sims/lpn/jpeg_decoder/include/jpeg_regs.hh"
 #include "sims/lpn/lpn_common/place_transition.hh"
+#include "sims/lpn/lpn_common/lpn_sim.hh"
 #include "sims/lpn/jpeg_decoder/include/lpn_req_map.hh"
 #include "sims/lpn/jpeg_decoder/include/driver.hh"
+#include "sims/lpn/jpeg_decoder/perf_sim/sim.hh"
 
-#define JPEGD_DEBUG 0
+
+// if you are waiting for the zero-cost-dma, 
+// and you don't have events to schedule
+// you can't send sync messages yet
 
 #define MASK5 0b11111
 #define MASK6 0b111111
 
-#define EXTRA_BYTES 6*64*4
-void KickSim(CtlVar& ctrl, int tag){
-  std::unique_lock lk(ctrl.mx);
-  if(ctrl.finished){
-    return;
-  }
-  // Verify if wake up is nee
-   if (ctrl.req_matcher[tag].isCompleted()) {
-    if (ctrl.blocked) {
-      // Notify to wake up
-      ctrl.blocked = false;
-      ctrl.cv.notify_one();
-    }
-    // Wait for func sim to process
-    ctrl.cv.wait(lk, [&] { return ctrl.blocked || ctrl.finished; });
-   }
-}
+#define JPEG_DEBUG 0
 
-void WaitForSim(CtlVar& ctrl){
-  std::unique_lock lk(ctrl.mx);
-  // Verify if wake up is needed
-  if (ctrl.blocked) {
-    // Notify to wake up
-    ctrl.blocked = false;
-    ctrl.cv.notify_one();
-  }
-  ctrl.cv.wait(lk, [&] { return ctrl.blocked || ctrl.finished; });
-}
+// #define JPEG_DEBUG_DMA
 
-void EndSim(CtlVar& ctrl){
-  std::unique_lock lk(ctrl.mx);
-  ctrl.blocked = false;
-  ctrl.cv.notify_one();
-}
+uint64_t in_flight_write = 0;
+uint64_t in_flight_read = 0;
 
-namespace {
-JpegDecoderBm jpeg_decoder{};
-std::thread func_thread;
-std::vector<int> ids = {0};
+JPEGBm* jpeg_bm_;
+
+namespace{
+
+JPEGBm jpeg_sim{};
 
 void sigint_handler(int dummy) {
-  jpeg_decoder.SIGINTHandler();
+  jpeg_sim.SIGINTHandler();
 }
 
 void sigusr1_handler(int dummy) {
-  jpeg_decoder.SIGUSR1Handler();
+  jpeg_sim.SIGUSR1Handler();
 }
 
 void sigusr2_handler(int dummy) {
-  jpeg_decoder.SIGUSR2Handler();
+  jpeg_sim.SIGUSR2Handler();
 }
 
-}  // namespace
+}  // namespace JPEG
 
-static uint64_t outstanding_read = 0;
+void JPEGBm::SetupIntro(struct SimbricksProtoPcieDevIntro &dev_intro) {
 
-void JpegDecoderBm::SetupIntro(struct SimbricksProtoPcieDevIntro &dev_intro) {
+  std::cout << "JPEGBm::SetupIntro" << std::endl;
+  
   dev_intro.pci_vendor_id = 0xdead;
   dev_intro.pci_device_id = 0xbeef;
   dev_intro.pci_class = 0x40;
@@ -89,16 +68,18 @@ void JpegDecoderBm::SetupIntro(struct SimbricksProtoPcieDevIntro &dev_intro) {
   dev_intro.pci_revision = 0x00;
 
   // request one BAR
-  static_assert(sizeof(JpegDecoderRegs) <= 4096, "Registers don't fit BAR");
+  static_assert(sizeof(JPEGRegs) <= 4096, "Registers don't fit BAR");
   dev_intro.bars[0].len = 4096;
   dev_intro.bars[0].flags = 0;
 
   // setup LPN initial state
+  // auto ids = std::vector<int>{LOAD_INSN, LOAD_INP_ID, LOAD_WGT_ID, LOAD_ACC_ID, LOAD_UOP_ID, STORE_ID};
   setupReqQueues(ids);
   lpn_init();
+  jpeg_bm_ = &jpeg_sim;
 }
 
-void JpegDecoderBm::RegRead(uint8_t bar, uint64_t addr, void *dest,
+void JPEGBm::RegRead(uint8_t bar, uint64_t addr, void *dest,
                             size_t len) {
   if (bar != 0) {
     std::cerr << "error: register read from unmapped BAR " << bar << "\n";
@@ -109,12 +90,15 @@ void JpegDecoderBm::RegRead(uint8_t bar, uint64_t addr, void *dest,
               << " len=" << len << "\n";
     return;
   }
-
+  
   std::memcpy(dest, reinterpret_cast<uint8_t *>(&Registers_) + addr, len);
+  // std::cerr << "Register read offset=" << addr
+  //           << " len=" << len << " value=" << (*((uint32_t*)(dest))) <<"\n";
 }
 
-void JpegDecoderBm::RegWrite(uint8_t bar, uint64_t addr, const void *src,
+void JPEGBm::RegWrite(uint8_t bar, uint64_t addr, const void *src,
                              size_t len) {
+  
   if (bar != 0) {
     std::cerr << "error: register write to unmapped BAR " << bar << "\n";
     return;
@@ -125,202 +109,242 @@ void JpegDecoderBm::RegWrite(uint8_t bar, uint64_t addr, const void *src,
     return;
   }
 
+  std::cerr << "Register write offset=" << addr
+              << " len=" << len << " value=" << (*((uint32_t*)(src))) <<"\n";
+
   uint32_t old_ctrl = Registers_.ctrl;
   uint32_t old_is_busy = Registers_.isBusy;
   std::memcpy(reinterpret_cast<uint8_t *>(&Registers_) + addr, src, len);
-
   // start decoding image
   if (!old_is_busy && !(old_ctrl & CTRL_REG_START_BIT) &&
       Registers_.ctrl & CTRL_REG_START_BIT) {
-    // std::cout << "DMA write completed; bytes written: " << BytesWritten_ << std::endl;
-    // std::cout << " p8 token len " <<  p8.tokensLen() << std::endl;
-    ctl_func.Reset();
-    // Issue DMA for fetching the image data
+
     Registers_.isBusy = 1;
-    BytesRead_ =
-        std::min<uint64_t>(Registers_.ctrl & CTRL_REG_LEN_MASK, DMA_BLOCK_SIZE);
     uint64_t src_addr = Registers_.src;
     uint64_t dst_addr = Registers_.dst;
     
     std::cerr << "jpeg decoder: src_addr=" << src_addr << " dst_addr=" << dst_addr << "\n";
 
-    // enqueue the one and only request for the whole image
-    enqueueReq(0, src_addr, (Registers_.ctrl & CTRL_REG_LEN_MASK) + EXTRA_BYTES, 0, READ_REQ);
+    lpn_start(src_addr, Registers_.ctrl & CTRL_REG_LEN_MASK, dst_addr, TimePs());
 
-   
-    func_thread = std::thread(jpeg_decode_funcsim, src_addr, Registers_.ctrl & CTRL_REG_LEN_MASK, dst_addr, TimePs());
-    WaitForSim(ctl_func);
+    for (auto &kv : io_req_map) {
+      std::cerr << "io_req_map[" << kv.first << "].size() = " << kv.second.size() << "\n";
+    }
 
-    auto dma_op = std::make_unique<JpegDecoderDmaReadOp>(src_addr, BytesRead_);
-
-    // IntXIssue(false); // deassert interrupt
-    IssueDma(std::move(dma_op));
-    outstanding_read += 1;
+    // Start simulating the LPN immediately
+    auto evt = std::make_unique<pciebm::TimedEvent>();
+    evt->time = TimePs();
+    evt->priority = 0;
+    EventSchedule(std::move(evt));
     return;
   }
-
-  // do nothing
+    // do nothing
   Registers_.ctrl &= ~CTRL_REG_START_BIT;
   Registers_.isBusy = old_is_busy;
+  
 }
 
-void JpegDecoderBm::DmaComplete(std::unique_ptr<pciebm::DMAOp> dma_op) {
-  // handle response to DMA read request
+// Algo For Read
+// 1. Process Read, put into lpn_req buffer
+// 2. Run LPN to produce mem requests
+// 3. Notify func sim
+// 4. Issue new DMA ops 
+void JPEGBm::DmaComplete(std::unique_ptr<pciebm::DMAOp> dma_op) {
+
   UpdateClk(t_list, T_SIZE, TimePs());
+  // handle response to DMA read request
   if (!dma_op->write) {
-    outstanding_read -= 1;
-    // std::cout << "DMA read completed" << " len: " << dma_op->len  << " outstanding: "<<outstanding_read << std::endl;
-    putData(dma_op->dma_addr, dma_op->len, dma_op->tag, READ_REQ, TimePs(), dma_op->data);
-
-    KickSim(ctl_func, dma_op->tag);
-
-    // produce tokens for the LPN
-    // std::cout << "update lpn finishes" << std::endl;
-    uint64_t next_ts = NextCommitTime(t_list, T_SIZE);
-
-#if JPEGD_DEBUG
-    std::cerr << "next_ts=" << next_ts << " TimePs=" << TimePs() << "\n";
-#endif
-    assert(
-        next_ts >= TimePs() &&
-        "JpegDecoderBm::DmaComplete: Cannot schedule event for past timestamp");
-    auto next_scheduled = EventNext();
-    if (next_ts != lpn::LARGE &&
-        (!next_scheduled || next_scheduled.value() > next_ts)) {
-#if JPEGD_DEBUG
-      std::cerr << "schedule next at = " << next_ts << "\n";
-#endif
-      auto evt = std::make_unique<pciebm::TimedEvent>();
-      evt->time = next_ts;
-      EventSchedule(std::move(evt));
-    }
-
-    // issue DMA request for next block
-    uint32_t total_bytes = (Registers_.ctrl & CTRL_REG_LEN_MASK) + EXTRA_BYTES; 
-    // while(outstanding_read < 16){
-      if (BytesRead_ < total_bytes) {
-        uint64_t len =
-            std::min<uint64_t>(total_bytes - BytesRead_, DMA_BLOCK_SIZE);
-
-        // std::cout <<TimePs()/1000 << " issue DMA read for next block" << " len: " << len << " total: " << total_bytes << " outstanding: "<< outstanding_read << std::endl;
-        // reuse dma_op
-        auto dma_op =
-            std::make_unique<JpegDecoderDmaReadOp>(Registers_.src + BytesRead_, len);
-        IssueDma(std::move(dma_op));
-        outstanding_read += 1;
-
-        BytesRead_ += len;
-      }
-    // }
-    // std::cout << "outstanding read " << outstanding_read << std::endl;
+    in_flight_read--;
+    putData(dma_op->dma_addr, dma_op->len, dma_op->tag, dma_op->write, TimePs(), dma_op->data);
+    #ifdef JPEG_DEBUG_DMA
+      std::cerr << TimePs()/1000 << " DMA Complete: " << dma_op->tag << " " << dma_op->dma_addr << " " << dma_op->len << " remaining " << in_flight_read << std::endl;
+    #endif
   }
-  // DMA write completed
+  // handle response to DMA write request
   else {
-    BytesWritten_ += dma_op->len;
-    // std::cout << "DMA write completed; bytes written: " << BytesWritten_ <<  " total:" << GetSizeOfRGB() * 2 << std::endl;
-    if (BytesWritten_ == GetSizeOfRGB() * 2) {
-      // std::cout << "Everything finished ; bytes written: " << BytesWritten_ << std::endl;
-      EndSim(ctl_func);
-      func_thread.join();
-      ctl_func.exited = true;
-
-      // let host know that decoding completed
-      Registers_.isBusy = 0;
-      BytesWritten_ = 0;
-      // reset lpn state
-      Reset();
-      std::cout << "Everything finished done " << std::endl;
-    }
+    putData(dma_op->dma_addr, dma_op->len, dma_op->tag, dma_op->write, TimePs(), dma_op->data);
+    in_flight_write--;
+    #ifdef JPEG_DEBUG_DMA
+      std::cerr << TimePs()/1000 << " DMA Write Complete: " << dma_op->tag << " " << dma_op->dma_addr << " " << dma_op->len << " remaining " << in_flight_write << std::endl;
+    #endif
+    // Process Write
+    // lpn_req->acquired_len += dma_op->len;
   }
+
+  // Run LPN to process received memory
+  uint64_t next_ts = NextCommitTime(t_list, T_SIZE); 
+  
+  // Check for end condition
+  if (in_flight_write == 0 && in_flight_read == 0 && lpn_finished() && next_ts == lpn::LARGE) {
+    std::cerr << "DMAcomplete: JPEG finished " << std::endl;
+    // lpn_end();
+    ClearReqQueues(ids);
+
+    Registers_.isBusy = 0;
+    TransitionCountLog(t_list, T_SIZE);
+    return ;
+  }
+
+  // Schedule next event
+  #if JPEG_DEBUG
+      std::cerr << "next_ts=" << next_ts <<  " TimePs=" << TimePs() << " lpnLarge=" << lpn::LARGE << "\n";
+  #endif
+      assert(next_ts >= TimePs() &&
+             "JPEGBm::DmaComplete: Cannot schedule event for past timestamp");
+      auto next_scheduled = EventNext();
+      if (next_ts != lpn::LARGE &&
+          (!next_scheduled || next_scheduled.value() > next_ts)) {
+  #if JPEG_DEBUG
+        std::cerr << "schedule next at = " << next_ts << "\n";
+  #endif
+        auto evt = std::make_unique<pciebm::TimedEvent>();
+        evt->time = next_ts;
+        EventSchedule(std::move(evt));
+      }
 }
 
-void JpegDecoderBm::ExecuteEvent(std::unique_ptr<pciebm::TimedEvent> evt) {
+void from_list_to_io_map(){
+    while(!dma_read_requests.empty()){
+        token_class_iasbrr* token = dma_read_requests.front();
+        dma_read_requests.pop_front();
+        auto tag = token->id;
+        // id is the tag in io_req_map
+        // ref is the port number
+        if(io_req_map[tag].empty()){
+            // printf("@dma_read_finish_directly port %d tag %d\n", token->ref, token->id);
+            // no matched request, put response directly
+            // no match because what lpn generates might not be the same as what the functional simulator expects
+            dma_read_resp.push_back(token);
+            continue;
+        }
+        auto req = dequeueReq(io_req_map[tag]);
+        assert(req != nullptr);
+        req->extra_ptr = static_cast<void*>(token);
+        assert(req->tag == tag);
+        // printf("@dma_read_start id %d; port %d tag %d\n", req->id, token->ref, token->id);
+        io_send_req_map[tag].push_back(std::move(req));
+    }
+
+    while(!dma_write_requests.empty()){
+        auto token = dma_write_requests.front();
+        dma_write_requests.pop_front();
+        auto tag = token->id;
+        // id is the tag in io_req_map
+        // ref is the port number
+        if(io_req_map[tag].empty()){
+            // printf("@dma_write_finish_directly port %d tag %d\n", token->ref, token->id);
+            // no matched request, put response directly
+            // no match because what lpn generates might not be the same as what the functional simulator expects
+            dma_write_resp.push_back(token);
+            continue;
+        }
+        auto req = dequeueReq(io_req_map[tag]);
+        req->extra_ptr = static_cast<void*>(token);
+        // printf("@dma_write_start id %d; port %d tag %d\n", req->id, token->ref, token->id);
+        io_send_req_map[tag].push_back(std::move(req));
+    }
+}
+
+void JPEGBm::ExecuteEvent(std::unique_ptr<pciebm::TimedEvent> evt) {
   // commit all transitions who can commit at evt.time
   // alternatively, commit transitions one by one.
+  // UpdateClk(TimePs());‘
+  uint64_t next_ts = lpn::LARGE;
+  while(1){
+    CommitAtTime(t_list, T_SIZE, evt->time);
+    // TransitionCountLog(t_list, T_SIZE);
+    next_ts = NextCommitTime(t_list, T_SIZE);
+    if (next_ts > evt->time) break;
+  }
 
-  CommitAtTime(t_list, T_SIZE, evt->time);
-  uint64_t next_ts = NextCommitTime(t_list, T_SIZE);
+  // check the new dma events
+  from_list_to_io_map();
+  next_ts = NextCommitTime(t_list, T_SIZE);
 
-#if JPEGD_DEBUG
+#if JPEG_DEBUG
   std::cerr << "lpn exec: evt time=" << evt->time << " TimePs=" << TimePs()
-            << " next_ts=" << next_ts << "\n";
+            << " next_ts=" << next_ts <<  " lpnLarge=" << lpn::LARGE << "\n";
 #endif
   // only schedule an event if one doesn't exist yet
-  assert(
-      next_ts >= TimePs() &&
-      "JpegDecoderBm::ExecuteEvent: Cannot schedule event for past timestamp");
+  assert(next_ts >= TimePs() &&
+      "JPEGBm::ExecuteEvent: Cannot schedule event for past timestamp");
   auto next_scheduled = EventNext();
-
-#if JPEGD_DEBUG
-  if (next_scheduled) {
-    std::cerr << "event scheduled next at = " << next_scheduled.value() << "\n";
-  }
-#endif
 
   if (next_ts != lpn::LARGE &&
       (!next_scheduled || next_scheduled.value() > next_ts)) {
-#if JPEGD_DEBUG
+#if JPEG_DEBUG
     std::cerr << "schedule next at = " << next_ts << "\n";
 #endif
-
     evt->time = next_ts;
     evt->priority = 0;
     EventSchedule(std::move(evt));
   }
 
-  if(ctl_func.exited == true){
-    return;
-  }
-  size_t rgb_cur_len = GetCurRGBOffset();
-  if (rgb_cur_len > 0) {
-    size_t rgb_consumed_len = GetConsumedRGBOffset();
-    // std::cout << "rgb_cur_len: " << rgb_cur_len << " rgb_consumed_len: " << rgb_consumed_len << std::endl;
-    if (rgb_cur_len > rgb_consumed_len) {
-      size_t pixels_to_write = rgb_cur_len - rgb_consumed_len;
-      assert(pixels_to_write % DMA_BLOCK_SIZE == 0);
-      auto decoded_img_data = std::make_unique<uint16_t[]>(pixels_to_write);
-      uint8_t *r_out = GetMOutputR();
-      uint8_t *g_out = GetMOutputG();
-      uint8_t *b_out = GetMOutputB();
-      for (size_t i = 0; i < pixels_to_write; ++i) {
-        // convert to RGB 565
-        uint16_t pixel = 0;
-        pixel |= (b_out[rgb_consumed_len + i] >> 3) & MASK5;
-        pixel |= ((g_out[rgb_consumed_len + i] >> 2) & MASK6) << 5;
-        pixel |= ((r_out[rgb_consumed_len + i] >> 3) & MASK5) << (5 + 6);
-        decoded_img_data[i] = pixel;
+  // Issue requests enqueued by IOGen
+  for (auto &kv : io_send_req_map) {
+    if (kv.second.empty()) continue;
+    while(!kv.second.empty()){
+      auto req = dequeueReq(kv.second);
+      auto total_bytes = req->len;
+      auto sent_bytes = 0;
+      while(total_bytes > 0){
+        auto bytes_to_req = std::min<uint64_t>(total_bytes, DMA_BLOCK_SIZE);
+        if (req->rw == READ_REQ) {
+          in_flight_read++;
+          auto dma_op = std::make_unique<JPEGDmaReadOp<DMA_BLOCK_SIZE>>(req->addr + sent_bytes, bytes_to_req, req->tag);
+          #ifdef JPEG_DEBUG_DMA
+            std::cerr << "Issue DMA Read: " << req->tag << " " << req->addr + sent_bytes << " " << bytes_to_req << std::endl;
+          #endif
+          IssueDma(std::move(dma_op));
+        } else {
+          // reset the len to record for completion
+          req->acquired_len = 0;
+          auto dma_op = std::make_unique<JPEGDmaWriteOp>(req->addr + sent_bytes, bytes_to_req, req->tag);
+          std::memcpy(dma_op->buffer, req->buffer, bytes_to_req);
+          in_flight_write++;
+          #ifdef JPEG_DEBUG_DMA
+            std::cerr << "Issue DMA Write: " << req->tag << " " << req->addr + sent_bytes << " " << bytes_to_req << std::endl;
+          #endif
+          IssueDma(std::move(dma_op));
+        }
+        total_bytes -= bytes_to_req;
+        sent_bytes += bytes_to_req;
       }
-      // split image into multiple DMAs and write back
-      #define WRITE_DMA_BLOCK_SIZE 4
-      for (size_t i = 0; i < pixels_to_write * 2; i += WRITE_DMA_BLOCK_SIZE) {
-        // the `* 2` is required since we have two bytes per pixel
-        uint64_t dma_addr = Registers_.dst + rgb_consumed_len * 2 + i;
-        auto dma_op =
-            std::make_unique<JpegDecoderDmaWriteOp>(dma_addr, WRITE_DMA_BLOCK_SIZE);
-        uint8_t *img_data_src =
-            reinterpret_cast<uint8_t *>(decoded_img_data.get()) + i;
-        std::memcpy(dma_op->buffer, img_data_src, WRITE_DMA_BLOCK_SIZE);
-        IssueDma(std::move(dma_op));
-        // std::cout << "issue DMA write for decoded image" << " len: " << DMA_BLOCK_SIZE << std::endl;
-      }
-      UpdateConsumedRGBOffset(rgb_cur_len);
+      io_pending_req_map[kv.first].push_back(std::move(req));
     }
   }
+
+  if (in_flight_write == 0 && in_flight_read == 0 && lpn_finished() && next_ts == lpn::LARGE) {
+      std::cerr << "JPEG Run finished " << std::endl;
+      
+      for (auto &kv : io_req_map) {
+        std::cerr << "io_req_map[" << kv.first << "].size() = " << kv.second.size() << "\n";
+      }
+
+      ClearReqQueues(ids);
+      // lpn_end();
+      // Registers_.ctrl = 0x2;
+      Registers_.isBusy = 0;
+      TransitionCountLog(t_list, T_SIZE);
+      return;
+  }
+ 
 }
 
-void JpegDecoderBm::DevctrlUpdate(
+void JPEGBm::DevctrlUpdate(
     struct SimbricksProtoPcieH2DDevctrl &devctrl) {
   // ignore this for now
   std::cerr << "warning: ignoring SimBricks DevCtrl message with flags "
             << devctrl.flags << "\n";
 }
 
+
 int main(int argc, char *argv[]) {
   signal(SIGINT, sigint_handler);
   signal(SIGUSR1, sigusr1_handler);
   signal(SIGUSR2, sigusr2_handler);
-  if (!jpeg_decoder.ParseArgs(argc, argv)) {
+  if (!jpeg_sim.ParseArgs(argc, argv)) {
     return EXIT_FAILURE;
   }
-  return jpeg_decoder.RunMain();
+  return jpeg_sim.RunMain();
 }

@@ -1,6 +1,7 @@
 #include "place_transition.hh"
 #include <bits/stdint-uintn.h>
 #include <sys/types.h>
+#include <deque>
 #include <iostream>
 
 uint64_t lpn::CLK = 0;
@@ -9,7 +10,7 @@ int check_token_requirement(BasePlace* self, int num){
   if(self->plain == true){
     if(num == -2) 
       return self->tk_counter == 0;
-    return self->tk_counter >= num;
+    return self->tk_counter >= (uint64_t)num;
   }
   
   if (num == -2)
@@ -136,12 +137,12 @@ uint64_t min_time(Transition* self){
 uint64_t min_time_g(Transition** all_ts, int size){
 
   uint64_t min = lpn::LARGE;
-  Transition* min_t = NULL;
+  // Transition* min_t = NULL;
   for(int i=0; i<size; i++){
     uint64_t _t = min_time(all_ts[i]);
     if (min > _t){
       min = _t;
-      min_t = all_ts[i];
+      // min_t = all_ts[i];
     }
   }
   // if (min_t != NULL){
@@ -149,6 +150,24 @@ uint64_t min_time_g(Transition** all_ts, int size){
   // }
   return min;
 }
+
+
+#include <algorithm>
+#include <deque>
+
+void fire_time_list(Transition** all_ts, int size, std::deque<uint64_t>& times) {
+    // Optional: Reserve enough space if your implementation supports it.
+    for (int i = 0; i < size; i++) {
+        uint64_t t = min_time(all_ts[i]);
+        if (t != lpn::LARGE) {
+            times.push_back(t);
+        }
+    }
+    std::vector<uint64_t> tmp(times.begin(), times.end());
+    std::sort(tmp.begin(), tmp.end());
+    times.assign(tmp.begin(), tmp.end());
+}
+
 
 std::vector<Transition*>* min_time_t(Transition** all_ts, uint64_t min_t, int size){
   std::vector<Transition*>* min_ts = new std::vector<Transition*>;

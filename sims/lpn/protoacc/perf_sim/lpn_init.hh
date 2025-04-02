@@ -10,7 +10,7 @@ extern "C" {
 }
 
 void lpn_init() {
-    
+  
     for (int i = 0; i < 1; ++i){
         NEW_TOKEN(EmptyToken, new_token);
         f2_p_S_WAIT_CMD.pushToken(new_token);
@@ -141,6 +141,16 @@ void lpn_init() {
     for (int i = 0; i < 1; ++i){
         NEW_TOKEN(EmptyToken, new_token);
         f2_p_dist_hold.pushToken(new_token);
+    }
+
+    for (int i = 0; i < 16; ++i){
+        NEW_TOKEN(EmptyToken, new_token);
+        dma_write_port_send_cap.pushToken(new_token);
+    }
+
+    for (int i = 0; i < 16; ++i){
+        NEW_TOKEN(EmptyToken, new_token);
+        dma_read_port_send_cap.pushToken(new_token);
     }
 
 }

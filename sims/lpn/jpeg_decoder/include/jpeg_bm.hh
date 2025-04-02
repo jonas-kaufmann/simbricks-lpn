@@ -2,12 +2,12 @@
 
 #include <simbricks/pciebm/pciebm.hh>
 
-#include "vta_regs.hh"
+#include "jpeg_regs.hh"
 
 #define DMA_BLOCK_SIZE 4096
 #define ZC_DMA_BLOCK_SIZE 4096
 
-class VTABm : public pciebm::PcieBM {
+class JPEGBm : public pciebm::PcieBM {
   void SetupIntro(struct SimbricksProtoPcieDevIntro &dev_intro) override;
 
   void RegRead(uint8_t bar, uint64_t addr, void *dest, size_t len) override;
@@ -22,17 +22,17 @@ class VTABm : public pciebm::PcieBM {
   void DevctrlUpdate(struct SimbricksProtoPcieH2DDevctrl &devctrl) override;
 
  private:
-  VTARegs Registers_;
+  JPEGRegs Registers_;
   uint64_t BytesRead_;
 
  public:
-  VTABm() : pciebm::PcieBM(16) {
+  JPEGBm() : pciebm::PcieBM(16) {
   }
 };
 
 template <uint64_t BufferLen>
-struct VTADmaReadOp : public pciebm::DMAOp {
-  VTADmaReadOp(uint64_t dma_addr, size_t len, uint32_t tag=0)
+struct JPEGDmaReadOp : public pciebm::DMAOp {
+  JPEGDmaReadOp(uint64_t dma_addr, size_t len, uint32_t tag=0)
       : pciebm::DMAOp{tag, false, dma_addr, len, buffer_} {
   }
 
@@ -40,8 +40,8 @@ struct VTADmaReadOp : public pciebm::DMAOp {
   uint8_t buffer_[BufferLen];
 };
 
-struct VTADmaWriteOp : public pciebm::DMAOp {
-  VTADmaWriteOp(uint64_t dma_addr, size_t len, uint32_t tag=0)
+struct JPEGDmaWriteOp : public pciebm::DMAOp {
+  JPEGDmaWriteOp(uint64_t dma_addr, size_t len, uint32_t tag=0)
       : pciebm::DMAOp{tag, true, dma_addr, len, buffer} {
     assert(len <= sizeof(buffer) && "len must be <= than buffer size");
   }

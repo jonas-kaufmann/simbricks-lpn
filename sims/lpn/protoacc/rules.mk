@@ -31,7 +31,7 @@ bm_objs += $(addprefix $(d), func_sim/lpn_req_map.o)
 bm_objs += $(addprefix $(d), perf_sim/places.o)
 
 # $(bin_protoacc_bm): CPPFLAGS += -O3 -g  -std=c++17 -Wno-missing-field-initializers
-$(bin_protoacc_bm): CPPFLAGS += -g  -std=c++17 -Wno-missing-field-initializers
+$(bin_protoacc_bm): CPPFLAGS += -O3 -std=c++17 -Wno-missing-field-initializers
 $(bin_protoacc_bm): INCLUDE += -I./sims/lpn/protoacc/json_lib
 # $(bin_vta_bm): LDFLAGS += -fsanitize=address -static-libasan
 $(bin_protoacc_bm):$(bm_objs) $(lib_pciebm) $(lib_pcie) $(lib_base) $(lib_mem) \

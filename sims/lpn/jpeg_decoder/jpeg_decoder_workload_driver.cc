@@ -9,7 +9,7 @@
 #include <string>
 #include <thread>
 
-#include "include/jpeg_decoder_regs.hh"
+#include "include/jpeg_regs.hh"
 #include "include/vfio.hh"
 
 #define DEBUG 0
@@ -48,8 +48,8 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
-  volatile JpegDecoderRegs &jpeg_decoder_regs =
-      *static_cast<volatile JpegDecoderRegs *>(bar0);
+  volatile JPEGRegs &jpeg_decoder_regs =
+      *static_cast<volatile JPEGRegs *>(bar0);
 #if DEBUG
   volatile VerilatorRegs &verilator_regs =
       *static_cast<volatile VerilatorRegs *>(bar1);
@@ -79,6 +79,7 @@ int main(int argc, char *argv[]) {
 
   // wait until decoding finished
   while (jpeg_decoder_regs.isBusy) {
+    // usleep(100);
     std::this_thread::yield();
   }
 

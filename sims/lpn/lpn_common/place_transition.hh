@@ -189,5 +189,6 @@ int sync(Transition* self, uint64_t time);
 int trigger_for_path(Transition* self);
 int sync_for_path(Transition* self);
 void detect_conflicting_Transition_groups(Transition** t_list, int size, std::set<BasePlace*>& p_list, int* conflict_free);
+void fire_time_list(Transition** all_ts, int size, std::deque<uint64_t>& times);
 
 #endif

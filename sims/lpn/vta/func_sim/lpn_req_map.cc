@@ -11,14 +11,12 @@ std::deque<token_class_iasbrr*> dma_read_resp;
 std::deque<token_class_iasbrr*> dma_write_resp;
 
 std::vector<int> ids = {
-        static_cast<int>(protoacc::CstStr::SCALAR_DISPATCH_REQ), 
-        static_cast<int>(protoacc::CstStr::STRING_GETPTR_REQ),
-        static_cast<int>(protoacc::CstStr::STRING_LOADDATA_REQ),
-        static_cast<int>(protoacc::CstStr::UNPACKED_REP_GETPTR_REQ),
-        static_cast<int>(protoacc::CstStr::LOAD_NEW_SUBMESSAGE),
-        static_cast<int>(protoacc::CstStr::LOAD_HASBITS_AND_IS_SUBMESSAGE),
-        static_cast<int>(protoacc::CstStr::LOAD_EACH_FIELD),
-        static_cast<int>(protoacc::CstStr::WRITE_OUT)
+        (int)vta::CstStr::DMA_LOAD_INP, 
+        (int)vta::CstStr::DMA_LOAD_WGT,
+        (int)vta::CstStr::DMA_STORE,
+        (int)vta::CstStr::DMA_LOAD_ACC,
+        (int)vta::CstStr::DMA_LOAD_UOP,
+        (int)vta::CstStr::DMA_LOAD_INSN,
 };
 
 void setupReqQueues(const std::vector<int>& ids) {
@@ -49,6 +47,7 @@ std::unique_ptr<MemReq>& enqueueReq(int id, uint64_t addr, uint32_t len, int tag
   req->rw = rw;
   req->len = len;
   req->buffer = buffer;
+  req->acquired_len = 0;
   auto& req_queue = io_req_map[tag];
   req_queue.push_back(std::move(req));
   return req_queue.back();
@@ -72,7 +71,7 @@ void putData(uint64_t addr, uint32_t len, int tag, int rw, uint64_t ts, void* bu
       if(req->acquired_len == req->len){
         auto tk = static_cast<token_class_iasbrr*>(req->extra_ptr);
         tk->ts = ts;
-        tk->size = req->len;
+        tk->size = len;
         if(req->rw == READ_REQ){
           dma_read_resp.push_back(tk);
         } else {

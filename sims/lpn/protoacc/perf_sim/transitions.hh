@@ -1460,14 +1460,14 @@ Transition dma_read_port_arbiter = {
 };
 Transition dma_read_port_mem_get = {
     .id = "dma_read_port_mem_get",
-    .delay_f = con_delay_ns(20),
+    .delay_f = con_delay_ns(0),
     .p_input = {&dma_read_port_recv_buf},
     .p_output = {&dma_read_port_send_cap,&dma_read_port_req_get_0,&dma_read_port_req_get_1,&dma_read_port_req_get_2,&dma_read_port_req_get_3,&dma_read_port_req_get_4,&dma_read_port_req_get_5,&dma_read_port_req_get_6,&dma_read_port_req_get_7},  
     .pi_w = {take_1_token()},
     .po_w = {pass_empty_token(),pass_token_match_port(&dma_read_port_recv_buf, 0),pass_token_match_port(&dma_read_port_recv_buf, 1),pass_token_match_port(&dma_read_port_recv_buf, 2),pass_token_match_port(&dma_read_port_recv_buf, 3),pass_token_match_port(&dma_read_port_recv_buf, 4),pass_token_match_port(&dma_read_port_recv_buf, 5),pass_token_match_port(&dma_read_port_recv_buf, 6),pass_token_match_port(&dma_read_port_recv_buf, 7)},
     .pi_w_threshold = {NULL},
     .pi_guard = {NULL},
-    .pip = con_delay_ns(1)
+    .pip = con_delay_ns(0)
 };
 Transition dma_read_port_recv_from_mem = {
     .id = "dma_read_port_recv_from_mem",
@@ -1478,14 +1478,14 @@ Transition dma_read_port_recv_from_mem = {
 };
 Transition dma_read_port_mem_put = {
     .id = "dma_read_port_mem_put",
-    .delay_f = con_delay_ns(20),
+    .delay_f = con_delay_ns(0),
     .p_input = {&dma_read_port_mem_put_buf,&dma_read_port_send_cap},
     .p_output = {&dma_read_port_SINK},  
     .pi_w = {take_1_token(),take_1_token()},
     .po_w = {call_put_mem(&dma_read_port_mem_put_buf, (int)protoacc::CstStr::END_OF_MESSAGE)},
     .pi_w_threshold = {NULL, NULL},
     .pi_guard = {NULL, NULL},
-    .pip = con_delay_ns(1)
+    .pip = con_delay_ns(0)
 };
 Transition dma_write_port_arbiter = {
     .id = "dma_write_port_arbiter",
@@ -1500,14 +1500,14 @@ Transition dma_write_port_arbiter = {
 };
 Transition dma_write_port_mem_get = {
     .id = "dma_write_port_mem_get",
-    .delay_f = con_delay_ns(20),
+    .delay_f = con_delay_ns(0),
     .p_input = {&dma_write_port_recv_buf},
     .p_output = {&dma_write_port_send_cap,&dma_write_port_req_get_0},  
     .pi_w = {take_1_token()},
     .po_w = {pass_empty_token(),pass_token_match_port(&dma_write_port_recv_buf, 0)},
     .pi_w_threshold = {NULL},
     .pi_guard = {NULL},
-    .pip = con_delay_ns(1)
+    .pip = con_delay_ns(0)
 };
 Transition dma_write_port_recv_from_mem = {
     .id = "dma_write_port_recv_from_mem",
@@ -1522,12 +1522,12 @@ Transition dma_write_port_recv_from_mem = {
 };
 Transition dma_write_port_mem_put = {
     .id = "dma_write_port_mem_put",
-    .delay_f = con_delay_ns(20),
+    .delay_f = con_delay_ns(0),
     .p_input = {&dma_write_port_mem_put_buf,&dma_write_port_send_cap},
     .p_output = {&dma_write_port_SINK},  
     .pi_w = {take_1_token(),take_1_token()},
     .po_w = {call_put_mem(&dma_write_port_mem_put_buf, (int)protoacc::CstStr::NONSCALAR)},
     .pi_w_threshold = {NULL, NULL},
     .pi_guard = {NULL, NULL},
-    .pip = con_delay_ns(1)
+    .pip = con_delay_ns(0)
 };
